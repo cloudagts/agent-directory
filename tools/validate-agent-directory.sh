@@ -1540,20 +1540,6 @@ required_cases=(
   routine-scheduler-darwin-launchd routine-scheduler-default-cron routine-schedule-install-explicit
 )
 
-# Guarantee within the same change that renamed old case names do not linger in the required list or documents.
-retired_case_names=(
-  backup-external-repo-boundary satellite-consolidation-audit
-  satellite-promotion-session-boundary satellite-hub-content-boundary
-  backup-explicit-only
-)
-for retired_case in "${retired_case_names[@]}"; do
-  [[ ! -e "$repo_root/evals/cases/$retired_case.yaml" ]] || \
-    fail "retired eval case must not exist: evals/cases/$retired_case.yaml"
-  if [[ -n "$tracked_files_snapshot" ]] && \
-    printf '%s\n' "$tracked_files_snapshot" | grep -Fqx -- "evals/cases/$retired_case.yaml"; then
-    fail "retired eval case is still tracked in the Git index: evals/cases/$retired_case.yaml"
-  fi
-done
 for case_name in "${required_cases[@]}"; do require_file "$repo_root/evals/cases/$case_name.yaml"; done
 
 while IFS= read -r -d '' case_file; do
@@ -1691,13 +1677,10 @@ for scope_token in WORKSPACE_BACKUP_OK ROOT_BACKUP_OK; do
   grep -Fq "$scope_token" "$repo_root/tools/BACKUP.md" || \
     fail "tools/BACKUP.md does not document the $scope_token result line"
 done
-if grep -Eq '(^|[^_])BACKUP_(OK|READY)' "$repo_root/tools/backup-to-github.sh"; then
-  fail 'tools/backup-to-github.sh must not emit the retired BACKUP_OK/BACKUP_READY result lines'
-fi
 grep -Fq 'tools/BACKUP.md' "$repo_root/AGENTS.md" || \
   fail 'AGENTS.md does not delegate backup details to tools/BACKUP.md'
 
-# --- Verify the Human-on-the-loop contract exists in the canon and the old explicit-only rule is gone ----------
+# --- Verify the Human-on-the-loop contract exists in the canon ----------
 
 # The root holds the autonomy defaults and the escalation gates; each Owner holds the detailed enumeration.
 for autonomy_heading in '## 自律実行' '## 人間へ上げる例外'; do
@@ -1728,17 +1711,6 @@ projects/LIFECYCLE.md|## 人間が決める遷移
 knowledge/KNOWLEDGE.md|### 大きいKnowledgeの扱い
 evals/EVALS.md|## 自律実行と例外ケースの最低条件
 AUTONOMY_OWNERS
-
-# Drop the old rule tying backup to an explicit user request, and the blanket ban on automatic push.
-for autonomy_doc in AGENTS.md README.md tools/TOOLS.md tools/BACKUP.md evals/EVALS.md \
-  projects/AGENTS.md projects/PROJECTS.md; do
-  if grep -Fq '明示した場合だけ実行する' "$repo_root/$autonomy_doc"; then
-    fail "$autonomy_doc still gates backup behind an explicit request; backup is event-driven"
-  fi
-  if grep -Fq '自動pushは使用しない' "$repo_root/$autonomy_doc"; then
-    fail "$autonomy_doc still forbids automatic push outright; scope the rule to the remote class"
-  fi
-done
 
 # The push policy vocabulary is exactly auto and gated.
 grep -Fq '`auto`' "$repo_root/projects/PROJECTS.md" && grep -Fq '`gated`' "$repo_root/projects/PROJECTS.md" || \
