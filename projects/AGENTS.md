@@ -4,10 +4,10 @@
 
 ## 着手
 
-1. 対象を一つに確定する（明示パスがなければ`tools/find-context.sh --route project`）。
-   明示依頼なく新設しない。
-2. 作業cwdは`projects/<name>/`。classを決め`tools/prepare-context.sh --class`で
-   Git所有境界とprofileを得る。
+1. 対象を一つに確定する（明示パスがなければ
+   `tools/find-context.sh --route project --limit 5 -- "<query>"`）。明示依頼なく新設しない。
+2. 作業cwdは`projects/<name>/`。classを決め`tools/prepare-context.sh --route project
+   --target projects/<name> --class <class>`でGit所有境界とprofileを得る。
 3. `AGENTS.md`（あれば）→`PROJECT.md`全文→`STATE.md`の順に読み、対象契約
    （`#PC-xx`か`#status`）と合格条件を特定。
 4. 成立したDocs Route条件の正本とRequired参照だけを読む。
