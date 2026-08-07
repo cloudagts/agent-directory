@@ -1211,6 +1211,7 @@ required_files=(
   'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/prepare-context.sh'
   'tools/append-knowledge-log.sh' 'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
   'tools/materialize-project-repositories.sh' 'tools/finalize-task.sh' '.gitignore'
+  'tools/UPSTREAM.md' 'tools/report-upstream-issue.sh'
   'routines/ROUTINES.md' 'routines/maintenance/ROUTINE.md'
   'tools/run-routine.sh' 'tools/manage-routine-schedule.sh' 'tools/routine-reasoner.py'
   "$knowledge_source_template_path" "$knowledge_topic_template_path"
@@ -1290,6 +1291,7 @@ check_size "$repo_root/evals/EVALS.md" 24576 'evals EVALS.md'
 check_size "$repo_root/tools/TOOLS.md" 20480 'tools TOOLS.md'
 check_size "$repo_root/tools/BACKUP.md" 20480 'tools BACKUP.md'
 check_size "$repo_root/tools/CONTROL.md" 20480 'tools CONTROL.md'
+check_size "$repo_root/tools/UPSTREAM.md" 20480 'tools UPSTREAM.md'
 check_size "$knowledge_index_file" 8192 'Knowledge index'
 check_size "$knowledge_log_file" 131072 'Knowledge log'
 check_size "$repo_root/routines/ROUTINES.md" 16384 'routines ROUTINES.md'
@@ -1557,6 +1559,7 @@ required_cases=(
   routine-scheduler-darwin-launchd routine-scheduler-default-cron routine-schedule-install-explicit
   control-policy-tamper control-mixed-scope-commit-split control-ordinary-failure-no-penalty
   delegation-default-off delegation-depth-one
+  upstream-issue-privacy upstream-issue-preapproved-send upstream-issue-fixed-destination
 )
 
 for case_name in "${required_cases[@]}"; do require_file "$repo_root/evals/cases/$case_name.yaml"; done
@@ -1676,6 +1679,34 @@ if [[ -f "$materialize_tool" ]]; then
     fail 'tools/materialize-project-repositories.sh does not emit MATERIALIZATION_BLOCKED'
 fi
 
+report_tool="$repo_root/tools/report-upstream-issue.sh"
+if [[ -f "$report_tool" ]]; then
+  [[ -x "$report_tool" ]] || fail 'tools/report-upstream-issue.sh is not executable'
+  "$syntax_bash" -n "$report_tool" 2>/dev/null || fail 'tools/report-upstream-issue.sh fails bash -n'
+
+  # The destination is a contract (tools/UPSTREAM.md): exactly one fixed assignment, no override path.
+  fixed_destination_count="$(grep -cF "upstream_repo='claudagt/agent-directory'" "$report_tool" || true)"
+  if [[ "$fixed_destination_count" != '1' ]]; then
+    fail 'tools/report-upstream-issue.sh must fix upstream_repo to claudagt/agent-directory exactly once'
+  fi
+  if grep -Eq -- '--repo\)' "$report_tool"; then
+    fail 'tools/report-upstream-issue.sh must not accept a --repo argument'
+  fi
+  if grep -E 'gh issue' "$report_tool" | grep -Fv -- '--repo "$upstream_repo"' | grep -q .; then
+    fail 'tools/report-upstream-issue.sh must pass --repo "$upstream_repo" on every gh issue invocation'
+  fi
+  for report_token in UPSTREAM_REPORT_OK UPSTREAM_REPORT_BLOCKED UPSTREAM_REPORT_DRAFTED; do
+    grep -Fq "$report_token" "$report_tool" || \
+      fail "tools/report-upstream-issue.sh does not emit $report_token"
+  done
+  # The reporting path never writes to git state.
+  for forbidden_subcommand in push pull merge rebase reset clean commit; do
+    if grep -Eq "git[^#]*[[:space:]]$forbidden_subcommand[[:space:]]" "$report_tool"; then
+      fail "tools/report-upstream-issue.sh must not run git $forbidden_subcommand"
+    fi
+  done
+fi
+
 grep -Fq 'tools/backup-to-github.sh' "$repo_root/README.md" || \
   fail 'README.md does not register tools/backup-to-github.sh'
 grep -Fq 'tools/BACKUP.md' "$repo_root/README.md" || fail 'README.md does not register tools/BACKUP.md'
@@ -1683,6 +1714,10 @@ grep -Fq 'tools/materialize-project-repositories.sh' "$repo_root/README.md" || \
   fail 'README.md does not register tools/materialize-project-repositories.sh'
 grep -Fq 'backup-to-github.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register backup-to-github.sh'
+grep -Fq 'report-upstream-issue.sh' "$repo_root/tools/TOOLS.md" || \
+  fail 'tools/TOOLS.md does not register report-upstream-issue.sh'
+grep -Fq 'tools/UPSTREAM.md' "$repo_root/AGENTS.md" || \
+  fail 'AGENTS.md does not route upstream issue reporting to tools/UPSTREAM.md'
 grep -Fq 'materialize-project-repositories.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register materialize-project-repositories.sh'
 grep -Fq 'prepare-context.sh' "$repo_root/tools/TOOLS.md" || \
