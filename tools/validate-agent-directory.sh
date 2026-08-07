@@ -1305,7 +1305,7 @@ check_heading_warning "$repo_root/skills/SKILLS.md" 30
 check_heading_warning "$repo_root/projects/PROJECTS.md" 30
 
 if [[ "$strict" == true ]]; then
-  if grep -Eq '<agent-name>|<agent-role>|<agent-mission>|<agent-vision>|<project-dir>' "$repo_root/AGENTS.md"; then
+  if grep -Eq '<agent-name>|<agent-role>|<agent-mission>|<agent-vision>|<operator-language>|<project-dir>' "$repo_root/AGENTS.md"; then
     fail 'AGENTS.md contains unresolved agent definition placeholders'
   fi
   while IFS= read -r -d '' case_file; do
