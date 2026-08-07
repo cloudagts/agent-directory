@@ -1210,7 +1210,7 @@ required_files=(
   'projects/_template/PROJECT.md' 'projects/_template/STATE.md' 'evals/EVALS.md' 'tools/TOOLS.md'
   'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/prepare-context.sh'
   'tools/append-knowledge-log.sh' 'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
-  'tools/materialize-project-repositories.sh' '.gitignore'
+  'tools/materialize-project-repositories.sh' 'tools/finalize-task.sh' '.gitignore'
   'routines/ROUTINES.md' 'routines/maintenance/ROUTINE.md'
   'tools/run-routine.sh' 'tools/manage-routine-schedule.sh' 'tools/routine-reasoner.py'
   "$knowledge_source_template_path" "$knowledge_topic_template_path"
@@ -1690,6 +1690,12 @@ grep -Fq 'prepare-context.sh' "$repo_root/tools/TOOLS.md" || \
 if [[ -f "$repo_root/tools/prepare-context.sh" ]]; then
   "$syntax_bash" -n "$repo_root/tools/prepare-context.sh" 2>/dev/null || \
     fail 'tools/prepare-context.sh fails bash -n'
+fi
+grep -Fq 'finalize-task.sh' "$repo_root/tools/TOOLS.md" || \
+  fail 'tools/TOOLS.md does not register finalize-task.sh'
+if [[ -f "$repo_root/tools/finalize-task.sh" ]]; then
+  "$syntax_bash" -n "$repo_root/tools/finalize-task.sh" 2>/dev/null || \
+    fail 'tools/finalize-task.sh fails bash -n'
 fi
 grep -Fq 'BACKUP.md' "$repo_root/tools/TOOLS.md" || fail 'tools/TOOLS.md does not register BACKUP.md'
 for scope_token in WORKSPACE_BACKUP_OK ROOT_BACKUP_OK; do
@@ -2171,6 +2177,34 @@ if (( prepare_probe_status != 0 )) || \
   ! printf '%s\n' "$prepare_probe_output" | grep -Fqx 'validation_profile=none' || \
   ! printf '%s\n' "$prepare_probe_output" | grep -Fqx 'backup_profile=none'; then
   fail 'prepare-context.sh --class read must map meta read to validation none and backup none'
+fi
+
+# finalize-task.sh is the deterministic work/state terminal: read has nothing to finalize,
+# boundary stays on the manual CONTROL.md path, and a call arriving with an escalation ack
+# preset is refused before any Git state is touched (each probe exits pre-side-effect).
+set +e
+finalize_probe_output="$(bash "$repo_root/tools/finalize-task.sh" --route knowledge --class read --message probe 2>/dev/null)"
+finalize_probe_status=$?
+set -e
+if (( finalize_probe_status == 0 )) || \
+  ! printf '%s\n' "$finalize_probe_output" | grep -Fq 'FINALIZE_BLOCKED reason=usage'; then
+  fail 'finalize-task.sh must reject class read (nothing to finalize)'
+fi
+set +e
+finalize_probe_output="$(bash "$repo_root/tools/finalize-task.sh" --route meta --class boundary --message probe 2>/dev/null)"
+finalize_probe_status=$?
+set -e
+if (( finalize_probe_status == 0 )) || \
+  ! printf '%s\n' "$finalize_probe_output" | grep -Fq 'FINALIZE_BLOCKED reason=boundary-class'; then
+  fail 'finalize-task.sh must send class boundary to the manual CONTROL.md path'
+fi
+set +e
+finalize_probe_output="$(AGENT_GUARDED_COMMIT=true bash "$repo_root/tools/finalize-task.sh" --route knowledge --class work --message probe 2>/dev/null)"
+finalize_probe_status=$?
+set -e
+if (( finalize_probe_status == 0 )) || \
+  ! printf '%s\n' "$finalize_probe_output" | grep -Fq 'FINALIZE_BLOCKED reason=ack-env-set'; then
+  fail 'finalize-task.sh must refuse a call arriving with an escalation ack preset'
 fi
 
 # A canon file lacking frontmatter must not stop cache generation; warn naming the target and drop it from the candidates.
