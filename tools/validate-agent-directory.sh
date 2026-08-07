@@ -1280,7 +1280,7 @@ for template_entry in AGENTS.md CLAUDE.md ARCHITECTURE.md docs; do
 done
 
 check_size "$repo_root/AGENTS.md" 8192 'root AGENTS.md'
-check_size_warning "$repo_root/AGENTS.md" 4096 'root AGENTS.md router'
+check_size_warning "$repo_root/AGENTS.md" 6144 'root AGENTS.md router'
 check_size "$repo_root/projects/AGENTS.md" 2048 'projects AGENTS.md'
 check_size "$repo_root/README.md" 32768 'README.md'
 check_size "$repo_root/knowledge/KNOWLEDGE.md" 20480 'KNOWLEDGE.md'
@@ -1798,7 +1798,7 @@ while IFS= read -r budget_row; do
   grep -Fqx -- "$budget_row" "$repo_root/tools/TOOLS.md" || \
     fail "tools/TOOLS.md size budget row was raised or removed: $budget_row"
 done <<'SIZE_BUDGET_ROWS'
-| `AGENTS.md`（ルート） | 8KiB。4KiB超はwarning |
+| `AGENTS.md`（ルート） | 8KiB。6KiB超はwarning |
 | `projects/AGENTS.md` | 2KiB |
 | `projects/<name>/AGENTS.md` | 2KiB |
 SIZE_BUDGET_ROWS

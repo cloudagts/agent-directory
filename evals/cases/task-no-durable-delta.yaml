@@ -1,0 +1,26 @@
+name: task-no-durable-delta
+
+fixture: active-project
+
+request: |
+  projects/market-scan/outputs/quarterly-report.md の誤字と表記ゆれだけ直しておいて。
+
+# 永続化する差分のない作業では、差分判定がno-opとなり、STATEもKnowledgeも書かないことを検証する。
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+    - projects/AGENTS.md
+    - projects/market-scan/AGENTS.md
+    - projects/market-scan/PROJECT.md
+    - projects/market-scan/STATE.md
+    - projects/market-scan/outputs/quarterly-report.md
+  may_write:
+    - projects/market-scan/outputs/quarterly-report.md
+    - .tmp/**
+  must_not_write:
+    - knowledge/**
+    - skills/**
+  must_not_modify:
+    - projects/market-scan/STATE.md
+    - projects/market-scan/PROJECT.md

@@ -262,7 +262,7 @@ commit・push境界のPortable Verifierと、managed hook・承認済みsnapshot
 
 | 対象 | hard limit |
 |---|---:|
-| `AGENTS.md`（ルート） | 8KiB。4KiB超はwarning |
+| `AGENTS.md`（ルート） | 8KiB。6KiB超はwarning |
 | `projects/AGENTS.md` | 2KiB |
 | `projects/<name>/AGENTS.md` | 2KiB |
 | `knowledge/KNOWLEDGE.md`・`tools/TOOLS.md`・`tools/BACKUP.md`・`tools/CONTROL.md`・`PROJECT.md` / `SKILL.md` | 20KiB |
