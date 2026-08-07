@@ -1,10 +1,52 @@
 #!/bin/bash
-# agent-directory managed hook v1 — pre-push
-# ref削除と非fast-forward push（force push相当）を拒否する。backupを起動しない（tools/CONTROL.md）。
+# agent-directory managed hook v2 — pre-push
+# ref削除と非fast-forward push（force push相当）を拒否し、さらに送信対象のcommit内容を
+# 承認済みsnapshot（.git/agent-control/）のpolicyで再検査する。pre-commitを迂回して作られた
+# forbidden / frozen違反もremoteへ出る前に止める。backupを起動しない（tools/CONTROL.md）。
 # stdin: "<local ref> <local sha> <remote ref> <remote sha>" を1 pushed refごとに1行受け取る。
 set -euo pipefail
 
+repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
+export AGENT_DIRECTORY_ROOT="$repo_root"
+
+control_dir="$(git rev-parse --git-path agent-control)"
+case "$control_dir" in /*) ;; *) control_dir="$repo_root/$control_dir" ;; esac
+verifier="$control_dir/check-boundary.sh"
+policy="$control_dir/control-policy.tsv"
+if [[ ! -f "$verifier" || ! -f "$policy" ]]; then
+  printf 'BOUNDARY_BLOCKED reason=missing-approved-snapshot\n' >&2
+  printf 'DETAIL: run: bash tools/install-git-hooks.sh --install\n' >&2
+  exit 1
+fi
+
+# pre-commitと同じ規則でsnapshotをHEADからだけ追従させる。
+refresh_source='external'
+[[ -f "$control_dir/refresh-source" ]] && refresh_source="$(head -n 1 "$control_dir/refresh-source")"
+if [[ "$refresh_source" == 'head' && -f "$control_dir/approved.sha256" ]]; then
+  snapshot_stale=false
+  for snapshot_name in check-boundary.sh control-policy.tsv; do
+    head_blob="$(git rev-parse "HEAD:tools/$snapshot_name" 2>/dev/null || true)"
+    [[ -n "$head_blob" ]] || continue
+    grep -Fq "$head_blob $snapshot_name" "$control_dir/approved.sha256" || snapshot_stale=true
+  done
+  if [[ "$snapshot_stale" == true ]]; then
+    : > "$control_dir/approved.sha256.tmp"
+    for snapshot_name in check-boundary.sh control-policy.tsv; do
+      head_blob="$(git rev-parse "HEAD:tools/$snapshot_name" 2>/dev/null || true)"
+      [[ -n "$head_blob" ]] || continue
+      git cat-file blob "$head_blob" > "$control_dir/$snapshot_name"
+      printf '%s %s\n' "$head_blob" "$snapshot_name" >> "$control_dir/approved.sha256.tmp"
+    done
+    mv "$control_dir/approved.sha256.tmp" "$control_dir/approved.sha256"
+    chmod 755 "$verifier"
+  fi
+fi
+
+path_prefix=''
+[[ -f "$control_dir/path-prefix" ]] && path_prefix="$(head -n 1 "$control_dir/path-prefix")"
+
 zero='0000000000000000000000000000000000000000'
+empty_tree="$(git hash-object -t tree /dev/null)"
 status=0
 
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -14,14 +56,28 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     status=1
     continue
   fi
+  range_base="$empty_tree"
   if [[ "$remote_sha" != "$zero" ]]; then
-    # remote先端がローカル履歴のancestorでなければ、そのpushはfast-forwardではない。
-    # remote objectを持っていない場合も同様に、fast-forwardであることを証明できないため拒否する。
+    # remote先端がローカル履歴のancestorでなければfast-forwardではない。remote objectを
+    # 持っていない場合も、fast-forwardであることを証明できないため拒否する。
     if ! git cat-file -e "$remote_sha" 2>/dev/null || \
        ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
       printf 'BOUNDARY_BLOCKED reason=non-fast-forward ref=%s remote_sha=%s\n' "$remote_ref" "$remote_sha" >&2
       status=1
+      continue
     fi
+    range_base="$remote_sha"
+  fi
+  # 送信対象差分の内容再検査（rangeモード: forbidden / frozenの客観的違反だけを執行する）。
+  set +e
+  range_output="$(/bin/bash "$verifier" --range "$range_base" "$local_sha" --policy "$policy" \
+    ${path_prefix:+--path-prefix "$path_prefix"} 2>&1)"
+  range_status=$?
+  set -e
+  if (( range_status != 0 )); then
+    printf '%s\n' "$range_output" >&2
+    printf 'DETAIL: outgoing commits for %s violate the approved policy\n' "$remote_ref" >&2
+    status=1
   fi
 done
 

@@ -1,15 +1,82 @@
 #!/bin/bash
-# agent-directory managed hook v1 — pre-commit
-# 境界検査だけを行う。backup・validator・ネットワーク操作を起動しない（tools/CONTROL.md）。
+# agent-directory managed hook v2 — pre-commit
+# 承認済みsnapshot（.git/agent-control/）のverifierとpolicyで境界検査だけを行う。
+# working tree版のverifier・policyは実行せず、snapshotはHEADのblobからだけ追従する。
+# backup・validator・ネットワーク操作を起動しない（tools/CONTROL.md）。
 set -euo pipefail
 
-repo_root="$(git rev-parse --show-toplevel)"
-verifier="$repo_root/tools/check-boundary.sh"
+repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
+# 外部からのroot上書き（判定の転送）を遮断して固定する。
+export AGENT_DIRECTORY_ROOT="$repo_root"
 
-if [[ ! -x "$verifier" ]]; then
-  printf 'BOUNDARY_BLOCKED reason=missing-verifier\n' >&2
-  printf 'DETAIL: %s is missing or not executable; restore it, or reinstall hooks via tools/install-git-hooks.sh\n' "$verifier" >&2
+control_dir="$(git rev-parse --git-path agent-control)"
+case "$control_dir" in /*) ;; *) control_dir="$repo_root/$control_dir" ;; esac
+
+hook_blocked() {
+  printf 'BOUNDARY_BLOCKED reason=%s\n' "$1" >&2
+  printf 'DETAIL: %s\n' "$2" >&2
   exit 1
+}
+
+verifier="$control_dir/check-boundary.sh"
+policy="$control_dir/control-policy.tsv"
+if [[ ! -f "$verifier" || ! -f "$policy" || ! -f "$control_dir/approved.sha256" ]]; then
+  hook_blocked 'missing-approved-snapshot' \
+    'run: bash tools/install-git-hooks.sh --install to (re)create the approved snapshot'
 fi
 
-exec /bin/bash "$verifier" --staged
+# workspace root（refresh-source=head）では、control正本がGateを通過してHEADへ入った場合だけ
+# snapshotを追従させる。未stage・未commitの変更は決して判定へ入らない。
+refresh_source='external'
+[[ -f "$control_dir/refresh-source" ]] && refresh_source="$(head -n 1 "$control_dir/refresh-source")"
+if [[ "$refresh_source" == 'head' ]]; then
+  snapshot_stale=false
+  for snapshot_name in check-boundary.sh control-policy.tsv; do
+    head_blob="$(git rev-parse "HEAD:tools/$snapshot_name" 2>/dev/null || true)"
+    [[ -n "$head_blob" ]] || continue
+    grep -Fq "$head_blob $snapshot_name" "$control_dir/approved.sha256" || snapshot_stale=true
+  done
+  if [[ "$snapshot_stale" == true ]]; then
+    : > "$control_dir/approved.sha256.tmp"
+    for snapshot_name in check-boundary.sh control-policy.tsv; do
+      head_blob="$(git rev-parse "HEAD:tools/$snapshot_name" 2>/dev/null || true)"
+      [[ -n "$head_blob" ]] || continue
+      git cat-file blob "$head_blob" > "$control_dir/$snapshot_name"
+      printf '%s %s\n' "$head_blob" "$snapshot_name" >> "$control_dir/approved.sha256.tmp"
+    done
+    mv "$control_dir/approved.sha256.tmp" "$control_dir/approved.sha256"
+    chmod 755 "$verifier"
+  fi
+fi
+
+path_prefix=''
+[[ -f "$control_dir/path-prefix" ]] && path_prefix="$(head -n 1 "$control_dir/path-prefix")"
+
+set +e
+verdict="$(/bin/bash "$verifier" --staged --policy "$policy" \
+  ${path_prefix:+--path-prefix "$path_prefix"})"
+verdict_status=$?
+set -e
+printf '%s\n' "$verdict"
+(( verdict_status == 0 )) || exit "$verdict_status"
+
+# guarded / contract変更は、stage済みindex treeへ束縛されたfull検証receiptを要求する。
+# receiptはworkspace rootのfull validatorがPASS時だけ発行し、一回で消費される。
+# external snapshotのrepo（Independent）はfull validatorを持たないため対象外（tools/CONTROL.md）。
+if [[ "$refresh_source" == 'head' ]]; then
+  meta_counts="$(printf '%s\n' "$verdict" | \
+    sed -n 's/^BOUNDARY_OK .*guarded=\([0-9][0-9]*\) contract=\([0-9][0-9]*\).*/\1 \2/p')"
+  if [[ -n "$meta_counts" ]]; then
+    guarded_n="${meta_counts%% *}"
+    contract_n="${meta_counts##* }"
+    if (( guarded_n + contract_n > 0 )); then
+      index_tree="$(git write-tree)"
+      receipt="$control_dir/receipts/$index_tree"
+      if [[ ! -f "$receipt" ]]; then
+        hook_blocked 'missing-full-validation-receipt' \
+          "stage the change first, run: bash tools/validate-agent-directory.sh --full (a PASS issues a receipt bound to index tree $index_tree), then commit"
+      fi
+      rm -f "$receipt"
+    fi
+  fi
+fi

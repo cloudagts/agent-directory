@@ -1069,6 +1069,22 @@ finish_run() {
     printf 'FAILED: %d structural issue(s), %d warning(s)\n' "$failures" "$warnings" >&2
     exit 1
   fi
+  # --full PASSはguarded / contract commitのための一回限りのreceiptを発行する。
+  # receiptは現在のindex tree（git write-tree）へ束縛され、pre-commit hookが消費する
+  # （正本はtools/CONTROL.md#明示エスカレーション）。
+  if [[ "${full:-false}" == true && -z "${AGENT_VALIDATOR_NESTED_FIXTURE:-}" ]]; then
+    if [[ "$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null)" == "$repo_root" ]]; then
+      receipt_dir="$(git -C "$repo_root" rev-parse --git-path agent-control)"
+      case "$receipt_dir" in /*) ;; *) receipt_dir="$repo_root/$receipt_dir" ;; esac
+      if receipt_tree="$(git -C "$repo_root" write-tree 2>/dev/null)"; then
+        mkdir -p "$receipt_dir/receipts"
+        printf 'head=%s\nissued=%s\n' \
+          "$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || printf 'none')" \
+          "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$receipt_dir/receipts/$receipt_tree"
+        printf 'RECEIPT: full-validation receipt issued for index tree %s\n' "$receipt_tree"
+      fi
+    fi
+  fi
   printf 'PASS: agent-directory structure is valid (%d warning(s))\n' "$warnings"
   exit 0
 }
@@ -1699,14 +1715,15 @@ done
 if [[ -f "$repo_root/tools/control-policy.tsv" ]]; then
   if ! awk -F '\t' '
       /^($|#)/ { next }
-      $1 !~ /^(exempt|forbidden|frozen|guarded)$/ || $2 == "" || NF > 3 { bad = 1 }
+      $1 !~ /^(exempt|forbidden|frozen|guarded|contract)$/ || $2 == "" || NF > 3 { bad = 1 }
       END { exit bad }
     ' "$repo_root/tools/control-policy.tsv"; then
     fail 'tools/control-policy.tsv has a row outside the tier<TAB>pattern<TAB>note schema'
   fi
   # Pin the load-bearing rows so the policy is not silently weakened.
   for pinned_policy in 'forbidden:.env*' 'frozen:knowledge/raw/*' 'frozen:knowledge/wiki/logs/*' \
-    'guarded:AGENTS.md' 'guarded:tools/*' 'guarded:evals/*' 'guarded:routines/*'; do
+    'guarded:AGENTS.md' 'guarded:README.md' 'guarded:tools/*' 'guarded:evals/*' 'guarded:routines/*' \
+    'contract:projects/*/PROJECT.md'; do
     pinned_tier="${pinned_policy%%:*}"
     pinned_pattern="${pinned_policy#*:}"
     awk -F '\t' -v t="$pinned_tier" -v p="$pinned_pattern" \
@@ -3674,12 +3691,16 @@ MOCK_RESPONSES
 fi
 
 # Control boundary fixtures: the verifier, the policy, the installer, and both git hooks are
-# exercised inside an isolated repository. Nothing touches the real repo or its .git/hooks.
+# exercised inside isolated repositories. Nothing touches the real repo or its .git/hooks.
+# Regression targets (audit 2026-08-07): unstaged policy/verifier tamper, root override,
+# full-validation receipts, machine-blocked mixed scope, outgoing push re-check,
+# Project contract tier, Independent-root enforcement, and stale-snapshot refresh.
 if [[ "$full" == true && -z "${AGENT_VALIDATOR_NESTED_FIXTURE:-}" ]]; then
   control_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-control.XXXXXX")"
   cleanup_paths+=("$control_fixture_dir")
   control_work="$control_fixture_dir/work"
   control_bare="$control_fixture_dir/bare.git"
+  control_decoy="$control_fixture_dir/decoy"
   control_env=(
     HOME="$control_fixture_dir" GIT_CONFIG_NOSYSTEM=1
     GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
@@ -3693,6 +3714,7 @@ if [[ "$full" == true && -z "${AGENT_VALIDATOR_NESTED_FIXTURE:-}" ]]; then
   printf 'immutable record\n' > "$control_work/knowledge/raw/internal/record.txt"
   printf '# closed log\n' > "$control_work/knowledge/wiki/logs/2026-Q1.md"
   printf 'work\n' > "$control_work/projects/demo/note.md"
+  printf '# demo contract\n' > "$control_work/projects/demo/PROJECT.md"
   env "${control_env[@]}" git -C "$control_work" init -q
   env "${control_env[@]}" git -C "$control_work" add -A
   env "${control_env[@]}" git -C "$control_work" commit -q -m 'fixture: control baseline'
@@ -3702,6 +3724,16 @@ if [[ "$full" == true && -z "${AGENT_VALIDATOR_NESTED_FIXTURE:-}" ]]; then
     set +e
     control_output="$(cd "$control_work" && env "${control_env[@]}" "$@" \
       /bin/bash tools/check-boundary.sh --staged 2>&1)"
+    control_status=$?
+    set -e
+  }
+  control_commit() {
+    # $1=commit message、以降=追加の環境変数割り当て。hooks経由の実commitを試みる。
+    local control_message="$1"
+    shift
+    set +e
+    control_output="$( (cd "$control_work" && env "${control_env[@]}" "$@" \
+      git commit -q -m "$control_message") 2>&1 )"
     control_status=$?
     set -e
   }
@@ -3756,9 +3788,39 @@ if [[ "$full" == true && -z "${AGENT_VALIDATOR_NESTED_FIXTURE:-}" ]]; then
   control_boundary AGENT_GUARDED_COMMIT=true
   printf '%s\n' "$control_output" | grep -Fq 'BOUNDARY_OK' || \
     fail "control fixture: an acknowledged guarded change was refused: $control_output"
+
+  # Guarded/contract changes mixed with ordinary work are machine-blocked even with the ack.
+  printf 'mixed\n' >> "$control_work/projects/demo/note.md"
+  env "${control_env[@]}" git -C "$control_work" add -A
+  control_boundary AGENT_GUARDED_COMMIT=true
+  printf '%s\n' "$control_output" | grep -Fq 'reason=mixed-scope' || \
+    fail "control fixture: a mixed guarded+ordinary stage was not refused: $control_output"
   env "${control_env[@]}" git -C "$control_work" reset -q --hard >/dev/null
 
-  # The installer is idempotent and refuses to overwrite or delete an unmanaged hook.
+  # A Project contract change needs its own explicit approval acknowledgment.
+  printf 'PC-01 rewritten\n' >> "$control_work/projects/demo/PROJECT.md"
+  env "${control_env[@]}" git -C "$control_work" add -A
+  control_boundary
+  printf '%s\n' "$control_output" | grep -Fq 'reason=contract-path-without-approval' || \
+    fail "control fixture: an unapproved Project contract change was not refused: $control_output"
+  control_boundary AGENT_CONTRACT_COMMIT=true
+  printf '%s\n' "$control_output" | grep -Fq 'BOUNDARY_OK' || \
+    fail "control fixture: an approved Project contract change was refused: $control_output"
+  env "${control_env[@]}" git -C "$control_work" reset -q --hard >/dev/null
+
+  # The verifier refuses a transplanted root instead of judging the wrong repository.
+  env "${control_env[@]}" git init -q "$control_decoy"
+  printf 'SECRET=1\n' > "$control_work/.env"
+  env "${control_env[@]}" git -C "$control_work" add -f .env
+  set +e
+  control_output="$(cd "$control_work" && env "${control_env[@]}" \
+    AGENT_DIRECTORY_ROOT="$control_decoy" /bin/bash tools/check-boundary.sh --staged 2>&1)"
+  control_status=$?
+  set -e
+  printf '%s\n' "$control_output" | grep -Fq 'reason=root-mismatch' || \
+    fail "control fixture: a transplanted AGENT_DIRECTORY_ROOT was not refused: $control_output"
+
+  # The installer is idempotent, snapshots the approved control files, and covers zero independents.
   control_hooks() {
     set +e
     control_output="$(cd "$control_work" && env "${control_env[@]}" \
@@ -3767,45 +3829,110 @@ if [[ "$full" == true && -z "${AGENT_VALIDATOR_NESTED_FIXTURE:-}" ]]; then
     set -e
   }
   control_hooks --install
-  printf '%s\n' "$control_output" | grep -Fq 'HOOKS_INSTALLED hooks=2' || \
+  printf '%s\n' "$control_output" | grep -Fq 'HOOKS_INSTALLED hooks=2 independent=0' || \
     fail "control fixture: hook install did not report two managed hooks: $control_output"
   control_hooks --install
   if (( control_status != 0 )); then
     fail "control fixture: a repeated hook install was not idempotent: $control_output"
   fi
   control_hooks --status
-  printf '%s\n' "$control_output" | grep -Fq 'pre-commit=managed pre-push=managed' || \
+  printf '%s\n' "$control_output" | grep -Fq 'pre-commit=managed pre-push=managed independent=0/0' || \
     fail "control fixture: hook status does not report both hooks as managed: $control_output"
+  for control_snapshot_file in check-boundary.sh control-policy.tsv approved.sha256; do
+    [[ -f "$control_work/.git/agent-control/$control_snapshot_file" ]] || \
+      fail "control fixture: install did not snapshot $control_snapshot_file"
+  done
 
-  # With hooks installed, an unacknowledged guarded commit fails and an acknowledged one passes.
-  printf '# fixture policy edit\n' >> "$control_work/tools/control-policy.tsv"
-  env "${control_env[@]}" git -C "$control_work" add -A
-  set +e
-  (cd "$control_work" && env "${control_env[@]}" git commit -q -m 'fixture: tamper attempt') >/dev/null 2>&1
-  control_status=$?
-  set -e
+  # With hooks installed: loosening the working-tree policy WITHOUT staging it changes nothing —
+  # the hook judges with the approved snapshot, so the forbidden path still cannot be committed.
+  printf '# 全行無効化\n' > "$control_work/tools/control-policy.tsv"
+  control_commit 'fixture: unstaged policy tamper'
+  if (( control_status == 0 )) || ! printf '%s\n' "$control_output" | grep -Fq 'reason=forbidden-path'; then
+    fail "control fixture: an unstaged policy loosening changed the verdict: $control_output"
+  fi
+  env "${control_env[@]}" git -C "$control_work" checkout -q -- tools/control-policy.tsv
+
+  # Neutering the working-tree verifier without staging it is equally ineffective.
+  printf '#!/bin/sh\nexit 0\n' > "$control_work/tools/check-boundary.sh"
+  control_commit 'fixture: unstaged verifier tamper'
+  if (( control_status == 0 )) || ! printf '%s\n' "$control_output" | grep -Fq 'reason=forbidden-path'; then
+    fail "control fixture: an unstaged verifier replacement changed the verdict: $control_output"
+  fi
+  env "${control_env[@]}" git -C "$control_work" checkout -q -- tools/check-boundary.sh
+
+  # The hook pins the root, so an external AGENT_DIRECTORY_ROOT cannot transplant the judgement.
+  control_commit 'fixture: root override attempt' AGENT_DIRECTORY_ROOT="$control_decoy"
+  if (( control_status == 0 )) || ! printf '%s\n' "$control_output" | grep -Fq 'reason=forbidden-path'; then
+    fail "control fixture: AGENT_DIRECTORY_ROOT transplanted the hook judgement: $control_output"
+  fi
+  env "${control_env[@]}" git -C "$control_work" reset -q -- .env
+  rm -f "$control_work/.env"
+
+  # An unacknowledged guarded commit fails at the hook.
+  printf 'forbidden\tblocked.txt\tfixture row\n' >> "$control_work/tools/control-policy.tsv"
+  env "${control_env[@]}" git -C "$control_work" add tools/control-policy.tsv
+  control_commit 'fixture: tamper attempt'
   if (( control_status == 0 )); then
     fail 'control fixture: the pre-commit hook let an unacknowledged guarded commit through'
   fi
-  set +e
-  (cd "$control_work" && env "${control_env[@]}" AGENT_GUARDED_COMMIT=true \
-    git commit -q -m 'fixture: acknowledged meta change') >/dev/null 2>&1
-  control_status=$?
-  set -e
-  if (( control_status != 0 )); then
-    fail 'control fixture: the pre-commit hook refused an acknowledged guarded commit'
-  fi
 
-  # The pre-push hook allows fast-forward pushes and refuses rewrites and ref deletion.
+  # The ack alone is not enough: a guarded commit needs the index-tree-bound full receipt.
+  control_commit 'fixture: acked without receipt' AGENT_GUARDED_COMMIT=true
+  if (( control_status == 0 )) || \
+    ! printf '%s\n' "$control_output" | grep -Fq 'reason=missing-full-validation-receipt'; then
+    fail "control fixture: a guarded commit passed without a full-validation receipt: $control_output"
+  fi
+  control_receipt_tree="$(env "${control_env[@]}" git -C "$control_work" write-tree)"
+  mkdir -p "$control_work/.git/agent-control/receipts"
+  printf 'head=fixture\n' > "$control_work/.git/agent-control/receipts/$control_receipt_tree"
+  control_commit 'fixture: acknowledged policy change' AGENT_GUARDED_COMMIT=true
+  if (( control_status != 0 )); then
+    fail "control fixture: an acknowledged guarded commit with a receipt was refused: $control_output"
+  fi
+  [[ ! -f "$control_work/.git/agent-control/receipts/$control_receipt_tree" ]] || \
+    fail 'control fixture: the full-validation receipt was not consumed on use'
+
+  # The snapshot follows HEAD only: the newly committed forbidden row is enforced on the
+  # next commit, and approved.sha256 records the refreshed policy blob.
+  printf 'smuggle\n' > "$control_work/blocked.txt"
+  env "${control_env[@]}" git -C "$control_work" add blocked.txt
+  control_commit 'fixture: stale snapshot probe'
+  if (( control_status == 0 )) || ! printf '%s\n' "$control_output" | grep -Fq 'reason=forbidden-path'; then
+    fail "control fixture: a policy row committed to HEAD was not enforced after refresh: $control_output"
+  fi
+  control_policy_blob="$(env "${control_env[@]}" git -C "$control_work" rev-parse HEAD:tools/control-policy.tsv)"
+  grep -Fq "$control_policy_blob control-policy.tsv" "$control_work/.git/agent-control/approved.sha256" || \
+    fail 'control fixture: the snapshot hash record did not follow the committed policy'
+  env "${control_env[@]}" git -C "$control_work" reset -q -- blocked.txt
+  rm -f "$control_work/blocked.txt"
+
+  # The pre-push hook allows fast-forward pushes and re-checks outgoing content.
   env "${control_env[@]}" git init -q --bare "$control_bare"
   env "${control_env[@]}" git -C "$control_work" remote add origin "$control_bare"
-  if ! env "${control_env[@]}" git -C "$control_work" push -q origin HEAD:main 2>/dev/null; then
+  if ! env "${control_env[@]}" git -C "$control_work" push -q origin HEAD:main >/dev/null 2>&1; then
     fail 'control fixture: the pre-push hook refused a plain fast-forward push'
   fi
-  env "${control_env[@]}" git -C "$control_work" reset -q --hard HEAD~1
+
+  # A forbidden file committed with --no-verify is still stopped before it reaches the remote.
+  printf 'SECRET=1\n' > "$control_work/.env"
+  env "${control_env[@]}" git -C "$control_work" add -f .env
+  env "${control_env[@]}" git -C "$control_work" commit -q --no-verify -m 'fixture: smuggled secret'
+  set +e
+  control_output="$(env "${control_env[@]}" git -C "$control_work" push origin HEAD:main 2>&1)"
+  control_status=$?
+  set -e
+  if (( control_status == 0 )) || ! printf '%s\n' "$control_output" | grep -Fq 'reason=forbidden-path'; then
+    fail "control fixture: the pre-push hook let a --no-verify forbidden commit through: $control_output"
+  fi
+  env "${control_env[@]}" git -C "$control_work" reset -q --hard HEAD~1 >/dev/null
+
+  # Rewritten history is refused as non-fast-forward, and remote ref deletion is refused.
+  env "${control_env[@]}" git -C "$control_work" reset -q --hard HEAD~1 >/dev/null
   printf 'diverged\n' >> "$control_work/projects/demo/note.md"
-  env "${control_env[@]}" git -C "$control_work" add -A
-  env "${control_env[@]}" git -C "$control_work" commit -q -m 'fixture: diverged history' >/dev/null 2>&1
+  env "${control_env[@]}" git -C "$control_work" add projects/demo/note.md
+  control_commit 'fixture: diverged history'
+  (( control_status == 0 )) || \
+    fail "control fixture: a plain commit for the divergence probe was refused: $control_output"
   set +e
   control_output="$(env "${control_env[@]}" git -C "$control_work" push --force origin HEAD:main 2>&1)"
   control_status=$?
@@ -3821,14 +3948,48 @@ if [[ "$full" == true && -z "${AGENT_VALIDATOR_NESTED_FIXTURE:-}" ]]; then
     fail "control fixture: the pre-push hook let a remote ref deletion through: $control_output"
   fi
 
+  # A materialized Independent repository receives the same hooks with a normalized path prefix,
+  # so its own contract file is protected inside its own Git root.
+  control_ind="$control_work/projects/ind"
+  mkdir -p "$control_ind"
+  printf '# independent contract\n' > "$control_ind/PROJECT.md"
+  printf 'independent work\n' > "$control_ind/note.md"
+  env "${control_env[@]}" git -C "$control_ind" init -q
+  env "${control_env[@]}" git -C "$control_ind" add -A
+  env "${control_env[@]}" git -C "$control_ind" commit -q -m 'fixture: independent baseline'
+  control_hooks --install
+  printf '%s\n' "$control_output" | grep -Fq 'HOOKS_INSTALLED hooks=2 independent=1' || \
+    fail "control fixture: install did not cover the materialized independent repository: $control_output"
+  grep -Fqx 'projects/ind/' "$control_ind/.git/agent-control/path-prefix" || \
+    fail 'control fixture: the independent snapshot does not carry its normalized path prefix'
+  printf 'PC-01 rewritten\n' >> "$control_ind/PROJECT.md"
+  env "${control_env[@]}" git -C "$control_ind" add PROJECT.md
+  set +e
+  control_output="$( (cd "$control_ind" && env "${control_env[@]}" \
+    git commit -q -m 'fixture: independent contract tamper') 2>&1 )"
+  control_status=$?
+  set -e
+  if (( control_status == 0 )) || \
+    ! printf '%s\n' "$control_output" | grep -Fq 'reason=contract-path-without-approval'; then
+    fail "control fixture: the independent contract change was not refused: $control_output"
+  fi
+  set +e
+  control_output="$( (cd "$control_ind" && env "${control_env[@]}" AGENT_CONTRACT_COMMIT=true \
+    git commit -q -m 'fixture: approved independent contract change') 2>&1 )"
+  control_status=$?
+  set -e
+  if (( control_status != 0 )); then
+    fail "control fixture: an approved independent contract change was refused: $control_output"
+  fi
+
   # An unmanaged hook is never overwritten on install nor deleted on remove.
   printf '#!/bin/sh\nexit 0\n' > "$control_work/.git/hooks/pre-commit"
   control_hooks --install
   printf '%s\n' "$control_output" | grep -Fq 'reason=unmanaged-hook-exists' || \
     fail "control fixture: install overwrote an unmanaged hook: $control_output"
   control_hooks --remove
-  printf '%s\n' "$control_output" | grep -Fq 'HOOKS_REMOVED removed=1' || \
-    fail "control fixture: remove did not report exactly one managed hook removed: $control_output"
+  printf '%s\n' "$control_output" | grep -Fq 'HOOKS_REMOVED removed=1 independent=1' || \
+    fail "control fixture: remove did not report the managed hooks precisely: $control_output"
   [[ -f "$control_work/.git/hooks/pre-commit" ]] || \
     fail 'control fixture: remove deleted an unmanaged hook'
 fi

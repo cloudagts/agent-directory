@@ -237,14 +237,16 @@ bash tools/validate-agent-directory.sh [--strict] [--full] [--changed] [--base <
 ## check-boundary.sh
 
 ```bash
-tools/check-boundary.sh [--staged | --base <ref>]
+tools/check-boundary.sh [--staged | --base <ref> | --range <old> <new>] [--policy <file>] [--path-prefix <prefix>]
 ```
 
-commit境界のPortable Verifier。staged差分（既定）または`--base`差分を`tools/control-policy.tsv`へ
-照らし、合格は`BOUNDARY_OK checked=<n>`、拒否は`BOUNDARY_BLOCKED reason=<reason>`をstdoutへ1行で
-出して非0で終了する（詳細はstderrの`DETAIL:`）。renameは旧pathの削除と新pathの追加へ分解して
-判定する。tierの意味論、`AGENT_GUARDED_COMMIT`のエスカレーション条件、違反分類は
-`tools/CONTROL.md`が所有し、扱うときだけ読む。ネットワークへ接続しない。
+commit・push境界のPortable Verifier。差分をpolicy（既定は`tools/control-policy.tsv`、執行時は
+hookが渡すsnapshot）へ照らし、合格は`BOUNDARY_OK checked=<n> guarded=<n> contract=<n>`、拒否は
+`BOUNDARY_BLOCKED reason=<reason>`をstdoutへ1行で出して非0で終了する（詳細はstderrの`DETAIL:`）。
+renameは旧pathの削除と新pathの追加へ分解し、stagedモードではmixed-scopeを機械拒否する。
+`--range`（push再検査）はforbidden / frozenだけを執行する。環境変数rootと実Git rootの食い違いは
+`root-mismatch`で拒否する。tier意味論、ack・receipt条件、違反分類は`tools/CONTROL.md`が所有し、
+扱うときだけ読む。ネットワークへ接続しない。
 
 ## install-git-hooks.sh
 
@@ -252,11 +254,13 @@ commit境界のPortable Verifier。staged差分（既定）または`--base`差�
 bash tools/install-git-hooks.sh --install|--status|--remove
 ```
 
-`tools/hooks/`のmanaged hook（pre-commit=verifier実行、pre-push=ref削除・非fast-forward拒否）を
-`.git/hooks`へ冪等に導入する。marker行のない既存hookへは触れず`HOOKS_BLOCKED`で停止し、
-`--remove`もmanaged hookだけを除去する。出力は`HOOKS_INSTALLED|HOOKS_STATUS|HOOKS_REMOVED|
-HOOKS_BLOCKED`の1行。hookは境界検査だけを行い、backup・validator・ネットワーク操作を起動しない
-（`tools/BACKUP.md`の非ゴールを変更しない）。
+managed hook（pre-commit=snapshot verifier実行とreceipt検査、pre-push=ref削除・非fast-forward
+拒否と送信内容再検査）と承認済みsnapshot（`.git/agent-control/`）を、workspace HEADのblobから
+workspace rootとmaterialize済み全Independent repositoryへ冪等に導入する（working tree版を
+導入元にしない）。marker行のない既存hookへは触れず`HOOKS_BLOCKED`で停止し、`--remove`も
+managed hookだけを除去する。出力は`HOOKS_INSTALLED|HOOKS_STATUS|HOOKS_REMOVED|HOOKS_BLOCKED`の
+1行（independent数を含む）。hookは境界検査だけを行い、backup・validator・ネットワーク操作を
+起動しない（`tools/BACKUP.md`の非ゴールを変更しない）。
 
 ## サイズ予算
 
