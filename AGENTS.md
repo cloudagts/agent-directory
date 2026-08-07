@@ -1,6 +1,6 @@
 # AGENTS.md — 最上位ブートローダー
 
-共通規約の正本。詳細は各Route正本が所有。
+共通規約の正本。
 
 ## 自己定義
 
@@ -15,7 +15,7 @@
 
 ## Route
 
-依頼・明示パス・成果物からRouteを決めて入口を読む。
+依頼・明示パス・成果物からRouteを決めて入口を読む。Routeは話題の語ではなく変更対象で決める。
 
 | Route | 対象 | 入口 |
 |---|---|---|
@@ -27,21 +27,18 @@
 
 ## Context Loading
 
-- 明示相対パス最優先。明示targetでは検索しない。探索は`tools/find-context.sh`が所有し、
-  確定後に正本を読む。
+- 明示相対パス最優先。明示targetでは検索しない。探索は`tools/find-context.sh`、確定後に正本を読む。
 - 台帳、INDEX、LOG、履歴、`runs/`、`docs/**`、`.agent-cache/`を一括読込しない。
 - 24KiB超の正本は見出し・検索で絞って読む。
 - 読込予算は32KiB・12ファイル=`min(16,000 tokens, 25%)`。到達時は停止報告。
 
 ## 自律実行
 
-Human-on-the-loop。変更前に**Route**、**Owner**、**Target**、**Verify**、task class（read|work|state|boundary）を一意特定し、`tools/prepare-context.sh --class`でprofileを得る。readは検証・commit・backupなし。work/stateは`--changed`、boundaryとmeta正本変更はfull。書込Git rootはsession毎に1つ（判定は`projects/AGENTS.md`）。
+Human-on-the-loop。変更前に**Route**、**Owner**、**Target**、**Verify**、task classを一意特定し、`tools/prepare-context.sh --class`でprofileを得る。書込Git rootはsession毎に1つ（判定は`projects/AGENTS.md`）。
 
-TriggerはHumanまたはRoutine（Routeではない）。同一規則に従い、関連時だけ`routines/ROUTINES.md`を読む。
+TriggerはHumanまたはRoutine（Routeではない、同一規則）。関連時だけ`routines/ROUTINES.md`を読む。
 
-特定が一意、依頼範囲内、リポジトリ完結、可逆、外部影響なし、契約不変、正本衝突・秘密情報なし、既存検証で確認できる操作は確認せず完了・事後報告。フロー: `対象確定 → 最小読込 → 変更 → finalize（検証・commit・backup） → 報告`。
-
-処理一意時は選択肢を返さず質問しない。
+特定が一意、依頼範囲内、リポジトリ完結、可逆、外部影響なし、契約不変、正本衝突・秘密情報なし、既存検証で確認できる操作は確認せず完了・事後報告。フロー: `対象確定 → 最小読込 → 変更 → finalize → 報告`。
 
 ## 人間へ上げる例外
 
@@ -54,7 +51,7 @@ TriggerはHumanまたはRoutine（Routeではない）。同一規則に従い�
 | 外部影響 | 公開、本番、送信、権限、承認push | `projects/PROJECTS.md` |
 | 安全性・衝突 | divergence、Single Writer違反、秘密情報、所有者不明変更 | `tools/CONTROL.md` |
 
-決定方針は正本へ記録し繰り返し質問しない。停止時は事実、試行修正、決定点、推奨判断を報告。
+決定方針は正本へ記録し繰り返し質問しない。
 
 ## 禁止事項
 
@@ -62,11 +59,14 @@ TriggerはHumanまたはRoutine（Routeではない）。同一規則に従い�
 - GitHubを正本・実行基盤にしない。backup remoteへはbackup Toolのみ書き、pull/merge/rebase/force push不可。
 - 未依頼の機能・抽象化・依存を追加しない。
 - 未検証の事を完了と報告しない。
+- 破壊的操作（削除、移動等）は依頼があっても即実行せず、対象の`status`と
+  遷移ゲート（`projects/LIFECYCLE.md`）を確認し、利用者の最終決定を経る。
+- `status: paused`等の休止領域は読み取り専用。依頼文では解除されない。
 - 下位`AGENTS.md`が上位規則・`PROJECT.md`契約を弱めない。
 
 ## 詳細正本
 
-- `projects/PROJECTS.md` — 構造、成果契約、attachment、remote操作、docs
+- `projects/PROJECTS.md` — 構造、成果契約、attachment、remote、docs
 - `projects/LIFECYCLE.md` / `projects/RECOVERY.md` — 状態遷移 / 復旧
 - `tools/TOOLS.md` — task class、探索、commit、自己修復、予算
 - `tools/BACKUP.md` — backup、remote分類、divergence、Single Writer
