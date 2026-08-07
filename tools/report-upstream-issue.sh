@@ -87,10 +87,29 @@ content_file="$(mktemp "${TMPDIR:-/tmp}/upstream-report-content.XXXXXX")"
 send_body="$(mktemp "${TMPDIR:-/tmp}/upstream-report-body.XXXXXX")"
 trap 'rm -f "$content_file" "$send_body"' EXIT
 
-# 上流SHAはtemplate remote（tools/BACKUP.mdの読み取り用remote）から解決する。無ければunknown。
-upstream_sha='unknown'
+# 上流revisionの解決順序はtools/UPSTREAM.md#上流revisionの解決が所有する:
+# merge-base（clone追従） → 採用時宣言のgit config（3-way port追従） → unknown（reason付き）。
+# merge-base以外はresolved-fromを併記し、「採用済み」と「remoteの現在」を混同しない。
+merge_base=''
+has_template_remote=false
 if git -C "$repo_root" remote get-url template >/dev/null 2>&1; then
-  upstream_sha="$(git -C "$repo_root" merge-base HEAD refs/remotes/template/main 2>/dev/null || printf 'unknown')"
+  has_template_remote=true
+  merge_base="$(git -C "$repo_root" merge-base HEAD refs/remotes/template/main 2>/dev/null || true)"
+fi
+declared_revision="$(git -C "$repo_root" config agent-directory.upstream-revision 2>/dev/null || true)"
+if [[ -n "$declared_revision" ]] && ! [[ "$declared_revision" =~ ^[0-9a-f]{7,40}$ ]]; then
+  note 'git config agent-directory.upstream-revision is not a revision sha; ignoring it'
+  declared_revision=''
+fi
+if [[ -n "$merge_base" ]]; then
+  upstream_sha="$merge_base"
+elif [[ -n "$declared_revision" ]]; then
+  upstream_sha="$declared_revision (resolved-from: declared)"
+elif [[ "$has_template_remote" == true ]]; then
+  upstream_sha='unknown (unrelated-history)'
+  note 'template remote is reachable but shares no history (3-way port adoption); declare the adopted revision once with: git config agent-directory.upstream-revision <sha>'
+else
+  upstream_sha='unknown (no-template-remote)'
 fi
 sed "s/<upstream-sha>/$upstream_sha/g" "$body_file" >"$send_body"
 { printf '%s\n' "$title"; cat "$send_body"; } >"$content_file"
@@ -109,7 +128,8 @@ check_term() {
   [[ -n "$term" ]] || return 0
   [[ ${#term} -ge 4 ]] || return 0
   case "$term" in
-    'agent-directory'|'<agent-name>'|'<agent-role>') return 0 ;;
+    'agent-directory') return 0 ;;
+    '<'*'>') return 0 ;; # 未置換のtemplateプレースホルダー（<agent-name>等）は固有名ではない
   esac
   if grep -Fiq -- "$term" "$content_file"; then
     add_violation "$rule"
@@ -123,8 +143,19 @@ check_pattern() {
   fi
 }
 
-agent_name="$(sed -n 's/.*あなたは`\([^`]*\)`.*/\1/p' "$repo_root/AGENTS.md" | head -n 1)"
-check_term agent-name "$agent_name"
+# Agent固有名はAGENTS.md#自己定義のbacktickトークン全件から導出する。記法にも名称の個数にも
+# 依存させず、抽出が空になったら無検査送信を成立させない（fail-closed）。
+self_definition_terms="$(awk '/^## 自己定義/ { in_section = 1; next }
+    in_section && (/^# / || /^## /) { exit }
+    in_section' "$repo_root/AGENTS.md" | grep -o '`[^`][^`]*`' | tr -d '`' | LC_ALL=C sort -u || true)"
+if [[ -z "$self_definition_terms" ]]; then
+  blocked anonymization-source-unparsed \
+    'AGENTS.md#自己定義 has no backticked names; the agent-name rule cannot run' \
+    'wrap every agent-specific name in the self-definition in backticks, then retry (tools/UPSTREAM.md#公開禁止情報)'
+fi
+while IFS= read -r self_definition_term; do
+  check_term agent-name "$self_definition_term"
+done <<<"$self_definition_terms"
 check_term workspace-name "${repo_root##*/}"
 check_term os-user-name "${USER:-}"
 check_term home-path "${HOME:-}"

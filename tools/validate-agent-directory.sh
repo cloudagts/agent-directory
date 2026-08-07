@@ -1211,7 +1211,7 @@ required_files=(
   'tools/BACKUP.md' 'tools/build-context-cache.sh' 'tools/find-context.sh' 'tools/prepare-context.sh'
   'tools/append-knowledge-log.sh' 'tools/backup-to-github.sh' 'tools/validate-agent-directory.sh'
   'tools/materialize-project-repositories.sh' 'tools/finalize-task.sh' '.gitignore'
-  'tools/UPSTREAM.md' 'tools/report-upstream-issue.sh'
+  'tools/UPSTREAM.md' 'tools/report-upstream-issue.sh' 'tools/REFERENCE.md'
   'routines/ROUTINES.md' 'routines/maintenance/ROUTINE.md'
   'tools/run-routine.sh' 'tools/manage-routine-schedule.sh' 'tools/routine-reasoner.py'
   "$knowledge_source_template_path" "$knowledge_topic_template_path"
@@ -1292,6 +1292,7 @@ check_size "$repo_root/tools/TOOLS.md" 20480 'tools TOOLS.md'
 check_size "$repo_root/tools/BACKUP.md" 20480 'tools BACKUP.md'
 check_size "$repo_root/tools/CONTROL.md" 20480 'tools CONTROL.md'
 check_size "$repo_root/tools/UPSTREAM.md" 20480 'tools UPSTREAM.md'
+check_size "$repo_root/tools/REFERENCE.md" 20480 'tools REFERENCE.md'
 check_size "$knowledge_index_file" 8192 'Knowledge index'
 check_size "$knowledge_log_file" 131072 'Knowledge log'
 check_size "$repo_root/routines/ROUTINES.md" 16384 'routines ROUTINES.md'
@@ -1705,6 +1706,9 @@ if [[ -f "$report_tool" ]]; then
       fail "tools/report-upstream-issue.sh must not run git $forbidden_subcommand"
     fi
   done
+  # Anonymization is fail-closed: an unparseable self-definition must block, never skip the rule.
+  grep -Fq 'anonymization-source-unparsed' "$report_tool" || \
+    fail 'tools/report-upstream-issue.sh must fail closed when no agent name is extractable from AGENTS.md#自己定義'
 fi
 
 grep -Fq 'tools/backup-to-github.sh' "$repo_root/README.md" || \
@@ -2240,6 +2244,68 @@ set -e
 if (( finalize_probe_status == 0 )) || \
   ! printf '%s\n' "$finalize_probe_output" | grep -Fq 'FINALIZE_BLOCKED reason=ack-env-set'; then
   fail 'finalize-task.sh must refuse a call arriving with an escalation ack preset'
+fi
+
+# report-upstream-issue.sh anonymization is notation-independent and fail-closed: every
+# backticked token in AGENTS.md#自己定義 is checked (prose form, any number of names), an
+# unparseable self-definition blocks instead of silently skipping the rule, and the upstream
+# revision resolves from the declared adoption when merge-base cannot (3-way port workspaces).
+# The probes stay on --dry-run, which never writes to the network.
+upstream_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-upstream.XXXXXX")"
+upstream_fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-upstream-cache.XXXXXX")"
+cleanup_paths+=("$upstream_fixture_dir" "$upstream_fixture_cache_dir")
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは検査fixtureに特化した実行主体、`fixture-probe-agent`（`Fixture合同会社`／`Fixture Probe LLC`）。' '' \
+    '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+printf 'fixture-probe-agent のworkspaceで観測した。\n' > "$upstream_fixture_dir/body-first-name.md"
+printf 'Fixture合同会社 の運用で観測した。\n' > "$upstream_fixture_dir/body-middle-name.md"
+printf 'privateなdownstream Workspaceの通常作業中に観測した。\n' > "$upstream_fixture_dir/body-clean.md"
+upstream_probe() {
+  set +e
+  upstream_probe_output="$(AGENT_DIRECTORY_ROOT="$upstream_fixture_dir" \
+    AGENT_CACHE_DIR="$upstream_fixture_cache_dir" \
+    bash "$repo_root/tools/report-upstream-issue.sh" \
+    --title '[bug] fixture probe' --body-file "$1" --dry-run 2>&1)"
+  upstream_probe_status=$?
+  set -e
+}
+upstream_probe "$upstream_fixture_dir/body-first-name.md"
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
+  fail 'report-upstream-issue.sh must block an agent name written in prose self-definition notation'
+fi
+upstream_probe "$upstream_fixture_dir/body-middle-name.md"
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
+  fail 'report-upstream-issue.sh must check every backticked self-definition name, not only the last one'
+fi
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )); then
+  fail "report-upstream-issue.sh dry-run failed on an anonymized body: $(printf '%s' "$upstream_probe_output" | head -n 2 | tr '\n' ' ')"
+fi
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは名を名乗らない散文だけの実行主体。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'reason=anonymization-source-unparsed'; then
+  fail 'report-upstream-issue.sh must fail closed when no backticked name is extractable from AGENTS.md#自己定義'
+fi
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは`fixture-probe-agent`（役割:`検査fixture`）。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+env -i PATH="$PATH" HOME="$upstream_fixture_dir" GIT_CONFIG_NOSYSTEM=1 \
+  git -C "$upstream_fixture_dir" init -q
+env -i PATH="$PATH" HOME="$upstream_fixture_dir" GIT_CONFIG_NOSYSTEM=1 \
+  git -C "$upstream_fixture_dir" config agent-directory.upstream-revision 0123456789abcdef0123456789abcdef01234567
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'resolved-from: declared'; then
+  fail 'report-upstream-issue.sh must resolve the upstream revision from the declared adoption when merge-base cannot'
 fi
 
 # A canon file lacking frontmatter must not stop cache generation; warn naming the target and drop it from the candidates.

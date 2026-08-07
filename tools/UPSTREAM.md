@@ -79,8 +79,19 @@ OK: privateなdownstream Workspaceの通常Project作業中に発生した
 ## 修正候補（分かる場合のみ）
 ```
 
-`<upstream-sha>`はToolが`template` remote（`tools/BACKUP.md`の読み取り用remote）から
-自動解決し、無ければ`unknown`にする。再現方法は固有情報を除いた最小手順だけを書く。
+`<upstream-sha>`はToolが`#上流revisionの解決`の順序で自動解決する。再現方法は固有情報を
+除いた最小手順だけを書く。
+
+## 上流revisionの解決
+
+本文の`<upstream-sha>`は次の順で解決し、merge-base以外はresolved-from・reasonを併記する。
+
+1. `template` remote（`tools/BACKUP.md`の読み取り用remote）とのmerge-base — clone追従。
+2. 採用時に一度だけ宣言する`git config agent-directory.upstream-revision <sha>` —
+   上流と履歴を共有しない3-way port追従用。remoteの現在tipへはfallbackしない
+   （「採用済みrevision」と「remoteの現在」を混同するため）。
+3. `unknown (no-template-remote)` / `unknown (unrelated-history)` — 両者を区別して残し、
+   後者では宣言方法をDETAILで案内する。
 
 ## 送信フロー
 
@@ -103,9 +114,12 @@ bash tools/report-upstream-issue.sh --search "<主要語>"
 
 - 宛先は`claudagt/agent-directory`へ固定し、変更する引数・環境変数を持たない。添付は
   受け付けない。`--dry-run`はネットワークへ書き込まない。
-- 検査条件はWorkspaceから実行時に導出する: `AGENTS.md`のAgent名、Git rootディレクトリ名、
-  remote URL、OSユーザー名・HOME、`git config`のname・email、および秘密情報token・
-  絶対パス・署名フッターのパターン。
+- 検査条件はWorkspaceから実行時に導出する: `AGENTS.md#自己定義`のbacktick表記**全件**
+  （記法・名称の個数に依存しない）、Git rootディレクトリ名、remote URL、OSユーザー名・HOME、
+  `git config`のname・email、および秘密情報token・絶対パス・署名フッターのパターン。
+- 自己定義からbacktick表記を1件も抽出できないときは`UPSTREAM_REPORT_BLOCKED
+  reason=anonymization-source-unparsed`で停止する（無検査のまま送信・dry-run成功にしない）。
+  解除は検査を弱めることではなく、自己定義の各固有名をbacktickで囲むことで行う。
 - 出力（stdout最終1行）: `UPSTREAM_REPORT_OK issue=<url>` / `UPSTREAM_REPORT_COMMENTED issue=<url>` /
   `UPSTREAM_REPORT_DRY_RUN_OK` / `UPSTREAM_REPORT_DRAFTED reason=<reason> path=<path>` /
   `UPSTREAM_REPORT_SEARCH_OK count=<n>`。停止は`UPSTREAM_REPORT_BLOCKED reason=<reason>`を
