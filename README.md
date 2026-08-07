@@ -166,8 +166,11 @@ Knowledgeページの削除は通常workとして通らない。meta正本への
 依存関係、CI、GitHub接続を必要としない。
 
 commit・push境界は[tools/CONTROL.md](tools/CONTROL.md)のpolicyを`tools/check-boundary.sh`が判定し、
-導入済みのgit hooks（pre-commit / pre-push）が強制する。判定はAIハーネスに依存せず、hookは
-境界検査だけを行いbackupや検証を起動しない。
+導入済みのgit hooks（pre-commit / pre-push）が強制する。hookが実行するのはworking tree版ではなく
+`.git/agent-control/`の承認済みsnapshot（HEAD追従）であり、meta正本・Project成果契約の変更には
+明示ackと`--full`検証のreceiptを要求し、push時は送信内容を再検査する。判定はAIハーネスに依存せず、
+hookは境界検査だけを行いbackupや検証を起動しない。materialize済みIndependent repositoryへも
+同じhookが導入される。
 
 ## Routine（自律定期保守）
 

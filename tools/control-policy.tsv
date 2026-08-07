@@ -14,6 +14,7 @@ frozen	knowledge/raw/*	不変原資料（追加のみ）
 frozen	knowledge/wiki/logs/*	閉鎖済みlog（追加のみ）
 guarded	AGENTS.md	最上位規約
 guarded	CLAUDE.md	bridge
+guarded	README.md	スケルトンの入口文書
 guarded	.gitignore	追跡境界の定義
 guarded	tools/*	Toolと執行系
 guarded	evals/*	行動契約と採点基準
@@ -26,6 +27,9 @@ guarded	projects/RECOVERY.md	復旧正本
 guarded	projects/REPOSITORIES.md	attachment registry
 guarded	projects/.gitignore	registry projection
 guarded	projects/_template/*	Projectテンプレート
+contract	projects/*/PROJECT.md	Project成果契約（人間が決める）
+guarded	projects/*/AGENTS.md	Project個別契約
+guarded	projects/*/CLAUDE.md	bridge
 guarded	knowledge/KNOWLEDGE.md	領域正本
 guarded	knowledge/wiki/_template/*	Knowledgeテンプレート
 guarded	skills/SKILLS.md	領域正本

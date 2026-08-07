@@ -214,8 +214,10 @@ ignore projectionで隠れるfixture pathは`git add -f`で明示追跡する。
 - commit・push境界の機械検査は`tools/CONTROL.md`と`tools/control-policy.tsv`が正本である。
   検証・evalを通すことを目的にpolicy、採点基準、size budgetを弱めず、その依頼は
   `安全性・衝突`例外として人間へ上げる。
-- guarded正本の変更はProject成果と同一commitへ混ぜず、`AGENT_GUARDED_COMMIT=true`を
-  当該1 commitだけへ付与し、`--full`検証を同じ作業内で実行する。
+- guarded正本の変更はProject成果と同一commitへ混ぜず（mixed-scopeは機械拒否）、
+  `AGENT_GUARDED_COMMIT=true`を当該1 commitだけへ付与し、stage後に`--full`検証を実行して
+  index tree束縛のreceiptを得てからcommitする。`PROJECT.md`の成果契約は`contract` tierであり、
+  人間の決定を得た後だけ`AGENT_CONTRACT_COMMIT=true`で単独commitする。
 - テスト・検証の失敗は境界違反として扱わず、権限・書込範囲を縮めない。境界違反は違反した
   操作だけを拒否し、無関係な能力（読込、分析、別領域の作業）を制限しない。
 - 通常タスクは委譲せず単一の推論主体で完結する。委譲は並列・隔離・独立評価の明確な利益がある

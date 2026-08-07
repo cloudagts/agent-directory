@@ -26,12 +26,39 @@ commit・push境界の機械検査、違反の分類と代謝、将来拡張の�
 判定は第1層・第2層だけで完結し、どの環境でも同一である。第3層はverifierを呼ぶ数行に限定し、
 判定ロジックをadapterへ複製しない。git hooksの導入は`tools/install-git-hooks.sh`で行う。
 
+### 承認済みsnapshot
+
+hookはworking treeのverifier・policyを実行しない。実行するのは`.git/agent-control/`の
+承認済みsnapshotであり、その更新元は**HEADのblob（Gateを通過してcommitされた版）だけ**である。
+installerもHEAD blobから導入し、working tree版を導入元にしない。これにより、未stage・未commitの
+改変で判定者や判定基準を差し替える迂回は構造的に判定へ入らない。hookは実行時に
+`AGENT_DIRECTORY_ROOT`を現在のGit rootへ固定し、verifier自身もrootの食い違いを
+`root-mismatch`で拒否する（判定の別リポジトリへの転送を塞ぐ）。
+
+### Independent repositoryへの適用
+
+installerはworkspace rootに加え、materialize済みの全Independent repository
+（`projects/<name>/.git/`）へ同じhookとexternal snapshotを導入する。判定pathは
+`projects/<name>/`のpath-prefixでworkspace相対へ正規化し、同じpolicyで判定する。
+external snapshotはHEAD追従を持たないため、control正本の変更後はworkspace rootで
+installerを再実行して配り直す。Independent側はfull validatorを持たないため、下記のreceiptは
+適用されず、明示ackだけが要求される（既知の限界）。
+
 ### 拘束力の限界
 
-git hooksは`--no-verify`で迂回できるため、この執行は改ざん検知・拒否であり絶対拘束ではない。
-`--no-verify`の使用、および`AGENT_GUARDED_COMMIT`の常用・自動付与・環境への恒久設定は、
-それ自体を境界違反として扱う。唯一の迂回不能な拘束は資格情報の不在である
-（backup remoteへの書込を`tools/backup-to-github.sh`だけに置く等）。
+この執行は改ざん検知・拒否であり、絶対拘束ではない。残る迂回経路は次で、いずれも使用自体を
+境界違反（制御系違反）として扱う。
+
+- `git commit --no-verify` — pre-commitを飛ばせる。ただしforbidden / frozen違反はpre-pushの
+  送信内容再検査で止まる。guarded / contractのack・receiptはcommit時の性質であり、
+  push時には再要求しない（ackの常用を要求しない設計）。
+- `git push --no-verify` — pre-pushも飛ばせる。remote側の保護（PR必須等）が最後の防壁になる。
+- shellによる`.git/`直接操作 — snapshot・receiptは同一OSユーザーのshellからは書換可能である。
+  OS権限分離はStrict Mode（導入基準参照）まで導入しない。
+
+`AGENT_GUARDED_COMMIT` / `AGENT_CONTRACT_COMMIT`の常用・自動付与・環境への恒久設定も
+境界違反である。唯一の迂回不能な拘束は資格情報の不在である（backup remoteへの書込を
+`tools/backup-to-github.sh`だけに置く、remote側でPRとFF-onlyを強制する等）。
 
 ## control-policy.tsv
 
@@ -44,6 +71,7 @@ patternはリポジトリ相対pathへのshell globである。
 | `forbidden` | 追加を含め、Git追跡・stagingを常に拒否する |
 | `frozen` | 追記専用領域。新規追加だけを許し、変更・削除・改名を拒否する |
 | `guarded` | meta正本。`AGENT_GUARDED_COMMIT=true`の明示がない変更を拒否する |
+| `contract` | Project成果契約。人間の決定事項であり、`AGENT_CONTRACT_COMMIT=true`の明示がない変更を拒否する |
 
 `guarded`集合は、validator `--changed`がfull検査へfallbackするmeta正本集合と一致させる。
 片方だけを変更しない。policyの緩和・行削除はそれ自体がguarded変更であり、下記の
@@ -51,12 +79,24 @@ patternはリポジトリ相対pathへのshell globである。
 
 ## 明示エスカレーション
 
-`AGENT_GUARDED_COMMIT=true`はguarded正本を変更するcommitへの明示的な承認記録であり、
+`AGENT_GUARDED_COMMIT=true`（guarded）と`AGENT_CONTRACT_COMMIT=true`（contract。対応する
+人間の決定が先に存在すること）は、該当正本を変更するcommitへの明示的な承認記録であり、
 次をすべて満たす1回のcommitだけへ付与する。
 
 - task classが`boundary`、またはmeta Routeのwork/stateであり、`--full`検証を同じ作業内で実行する。
-- 変更が依頼範囲内であり、`AGENTS.md#人間へ上げる例外`の4区分に該当しない。
+- 変更が依頼範囲内であり、`AGENTS.md#人間へ上げる例外`の4区分に該当しない
+  （contractは`方針・契約`の決定が済んでいる場合だけ）。
 - validatorやevalを通すことだけを目的にpolicy、採点基準、size budgetを弱める変更を含まない。
+
+ackは自己申告であり、それ単独では通らない。workspace rootでは次の機械的な束縛が加わる。
+
+- **mixed-scope拒否** — guarded / contractの変更と通常の成果を同じcommitへstageしたら、
+  ackの有無にかかわらず`mixed-scope`で拒否する。commitを分ける。
+- **full検証receipt** — guarded / contractのcommitは、stage済みindex tree（`git write-tree`）へ
+  束縛された一回限りのreceiptを要求する。receiptは`--full`validatorがPASS時に
+  `.git/agent-control/receipts/<tree>`へ発行し、pre-commitが消費する。手順は
+  `stage → bash tools/validate-agent-directory.sh --full → commit`の順とする
+  （検証後にstageを変えるとtreeが変わり、receiptは無効になる）。
 
 ## 違反の分類
 
@@ -68,6 +108,8 @@ patternはリポジトリ相対pathへのshell globである。
 | 予算・読込上限への到達 | 運用停止 | 停止して事実を報告する。ペナルティなし |
 | forbidden / frozen違反 | 境界違反 | commitを拒否し、違反部分を除いてやり直す |
 | ackなしのguarded変更 | 境界違反 | commitを拒否し、classとエスカレーション条件を再判定する |
+| 承認なしのcontract変更 | 境界違反 | commitを拒否し、`方針・契約`の決定を人間から先に得る |
+| mixed-scope / receipt欠落 | 境界違反 | commitを拒否し、分割または`--full`検証からやり直す |
 | verifier・policy・hooksの迂回、弱体化、無効化 | 制御系違反 | 停止し`安全性・衝突`例外として人間へ上げる |
 
 境界違反は違反した操作だけを拒否し、無関係な能力（読込、分析、別領域の作業）を制限しない。
