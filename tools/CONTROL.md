@@ -26,6 +26,25 @@ commit・push境界の機械検査、違反の分類と代謝、将来拡張の�
 判定は第1層・第2層だけで完結し、どの環境でも同一である。第3層はverifierを呼ぶ数行に限定し、
 判定ロジックをadapterへ複製しない。git hooksの導入は`tools/install-git-hooks.sh`で行う。
 
+### 執行Toolの契約
+
+```bash
+tools/check-boundary.sh [--staged | --base <ref> | --range <old> <new>] [--policy <file>] [--path-prefix <prefix>]
+bash tools/install-git-hooks.sh --install|--status|--remove
+```
+
+verifierは差分をpolicy（既定は`tools/control-policy.tsv`、執行時はhookが渡すsnapshot）へ照らし、
+合格は`BOUNDARY_OK checked=<n> guarded=<n> contract=<n>`、拒否は`BOUNDARY_BLOCKED reason=<reason>`を
+stdoutへ1行で出して非0で終了する（詳細はstderrの`DETAIL:`）。renameは旧pathの削除と新pathの追加へ
+分解し、`--range`（push再検査）はforbidden / frozenだけを執行する。環境変数rootと実Git rootの
+食い違いは`root-mismatch`で拒否する。ネットワークへ接続しない。
+
+installerはmanaged hook（pre-commit=snapshot verifier実行とreceipt検査、pre-push=ref削除・
+非fast-forward拒否と送信内容再検査）と承認済みsnapshotを、workspace rootとmaterialize済み全
+Independent repositoryへ冪等に導入する（導入元は下記のとおりHEAD blob）。marker行のない既存hookへは
+触れず`HOOKS_BLOCKED`で停止し、`--remove`もmanaged hookだけを除去する。出力は
+`HOOKS_INSTALLED|HOOKS_STATUS|HOOKS_REMOVED|HOOKS_BLOCKED`の1行（independent数を含む）。
+
 ### 承認済みsnapshot
 
 hookはworking treeのverifier・policyを実行しない。実行するのは`.git/agent-control/`の

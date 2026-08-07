@@ -35,7 +35,7 @@ Markdown、原資料、Project入出力、eval、Toolコードが正本である
 
 ## 自律実行の標準完了
 
-検証合格後のscoped commitを通常の完了処理とし、可否を質問しない。次をすべて満たすとき自動commitする。
+work/stateの終端は`tools/finalize-task.sh`の1回で検証・commit・backupまで完結させ、可否を質問しない。次をすべて満たすとき自動commitする。
 
 - 依頼範囲内の変更であり、変更対象のOwnerが明確である。
 - 必須検証が合格している（未検証・不合格を完了commitとして扱わない）。
@@ -63,7 +63,10 @@ triggerとpolicyが許す場合だけbackupまたは通常pushへ進む。
 サイズ超過、参照切れ、lint/format失敗、stale cache、validatorが示した構造違反、再生成漏れ、
 Toolへの決定的な入力不備、自分の変更が壊したtestである。
 
-同じ原因への修正再試行は3回まで。次のいずれかは試行回数によらず停止する。
+検証は終端の1回に集約する。変更の途中でvalidatorを反復実行せず、編集直後の確認は対象の最小検査
+（構文、lint、対象test）に限る。finalize検証の失敗後の再finalizeは1回まで。2回目の失敗は停止し、
+事実・試行・推奨判断を報告する。その他の内部エラーへの修正再試行は3回まで。次のいずれかは
+試行回数によらず停止する。
 
 - 修正方法が成果契約、目的、優先順位を変える。
 - 解決策が複数あり、選択で成果や安全性が変わる。
@@ -79,9 +82,9 @@ Toolへの決定的な入力不備、自分の変更が壊したtestである。
 | class | 対象 | 終端処理 |
 |---|---|---|
 | read | 照会、監査、説明 | 検証・STATE・commit・backup・manifest生成なし |
-| work | 成果物・コード・文書の変更 | `--changed`限定検証、commit、`--root-only` backup |
-| state | 目標・到達点・検証結果の変化 | 上記に加えSTATE更新 |
-| boundary | 契約、attachment、registry、移行、復旧 | full検証、必要な承認、workspace backup |
+| work | 成果物・コード・文書の変更 | `finalize-task.sh` 1回（`--changed`検証、commit、`--root-only` backup） |
+| state | 目標・到達点・検証結果の変化 | STATE更新後に同じfinalize 1回 |
+| boundary | 契約、attachment、registry、移行、復旧 | full検証、必要な承認、workspace backup（手動経路） |
 
 classはAgentが決め、必須の`prepare-context.sh --class`がprofileへ写像する（metaのwork/stateはfull）。未指定classを暗黙のworkとして扱わない。決定的なコマンド列は1回の
 Tool呼び出しへまとめ、成功時出力は短く保つ。現在目標、到達点、検証結果、ブロッカー、次の一手が
@@ -101,15 +104,14 @@ bash tools/build-context-cache.sh [--check|--check-routing|--routing-only]
 - `stat.meta` — warm fast path用stat指紋。`--check`の比較対象にしない
 - `search.sqlite` — routeable Knowledge 1,000件またはcatalog 5,000行で自動生成するFTS5 trigram派生索引
 
-`--routing-only`はcatalog系だけを再生成し、manifestへ触れない。catalogはpath順で決定的に生成する。
+`--routing-only`はcatalog系だけをpath順で決定的に再生成し、manifestへ触れない。
 `--check-routing`はstat指紋（path+size+mtime）一致なら本文再読なしで即PASSし、不一致・欠損時だけ
 routeable正本を再計算して比較する（Git HEADは鮮度入力にしない）。
 
 `ARCHITECTURE.md`、Project docs、`knowledge/raw/`はrouteable catalogへ入れず、通常検索結果へ
 全件投入しない。Embeddedはroot indexの`projects/*/PROJECT.md`、Independentは
 `projects/REPOSITORIES.md`から列挙し、採用revisionのfrontmatterだけを`git show`で読む。
-登録済み`projects/<name>/`の本体はmanifest・fingerprint・SQLite bodyへ入れず、
-`find-context.sh`のfallback grep対象にもしない。
+登録済み`projects/<name>/`の本体はmanifest・fingerprint・SQLite body・fallback grepへ入れない。
 
 `search.sqlite`はGit管理外で毎回正本から作り、外部content table、DBだけへの保存、ベクトルDBの
 既定導入は行わない。閾値上書き（`AGENT_SQLITE_*_THRESHOLD`）はfixture検証専用。
@@ -140,6 +142,21 @@ backup（none|root-only|workspace|independent-origin）のprofileを決定的に
 Conditionalの成立判断はエージェントが行い、読込予算・読込順序の規約は変えない。
 出力は`TASK_CONTEXT v1`のkey=value行と`READ:`/`CONDITIONAL:`/`MISSING:`のpath列。
 
+## finalize-task.sh
+
+```bash
+tools/finalize-task.sh --route project --target projects/<name> --class work --message "変更の一文"
+```
+
+work/state専用の決定的終端。staged差分の確認、境界検査、profile準拠の検証（scoped=`--changed`、
+meta=`--full`）、commit、backupを1回で実行し、段階ごとの再判断を排除する。profile写像は
+`prepare-context.sh`と同一。guarded / contract差分とboundary classは扱わず`tools/CONTROL.md`の
+手動経路へ返し、ack環境変数が設定済みの呼び出しは拒否する。Independent Projectでは検証を
+Projectの固定検証に委ね（`project-owned`）、pushはPush Policyに従いここから実行しない。
+合格は`FINALIZE_OK commit=<sha> validation=<profile> backup=<status>`、拒否は
+`FINALIZE_BLOCKED reason=<reason>`をstdoutへ1行で出し非0で終了する。backup失敗はcommit成功を
+取り消さない（`tools/BACKUP.md#backupが失敗したとき`）。
+
 ## append-knowledge-log.sh
 
 ```bash
@@ -155,17 +172,15 @@ tools/append-knowledge-log.sh --type ingest --target knowledge/wiki/topics/examp
 ## backup-to-github.sh
 
 ```bash
-bash tools/backup-to-github.sh [--dry-run] [--root-only]
+bash tools/backup-to-github.sh [--remote backup] [--branch main] [--dry-run] [--root-only]
 ```
 
 有効なPrivate backup remoteが設定済みなら、`tools/BACKUP.md`のtriggerで確認を求めず実行する。
 scopeはタスク分類表に従う。root backup remoteへpushする唯一の標準経路であり、Independent remoteへは
-pushせず、`--dry-run`はremoteへ書き込まない。
-
-- 入力: `--remote`（既定`backup`）、`--branch`（既定`main`）、`--dry-run`、`--root-only`。
-- 出力: 成功とdry-runはstdoutへ1行の機械可読結果、停止は`BACKUP_BLOCKED reason=<reason>`をstderrへ
-  出して非0で終了する。trigger、scope、前提条件、停止reason、divergence、Independent監査項目、
-  復旧・移行手順は`tools/BACKUP.md`が所有し、扱うときだけ読む。
+pushせず、`--dry-run`はremoteへ書き込まない。成功とdry-runはstdoutへ1行の機械可読結果、停止は
+`BACKUP_BLOCKED reason=<reason>`をstderrへ出して非0で終了する。trigger、scope、前提条件、
+停止reason、divergence、Independent監査項目、復旧・移行手順は`tools/BACKUP.md`が所有し、
+扱うときだけ読む。
 
 ## materialize-project-repositories.sh
 
@@ -182,9 +197,8 @@ registryの登録と採用revisionから`projects/<name>/`へ通常cloneを再�
   （停止reasonの正本はTool出力とvalidator隔離fixture）。
 - targetが無いときだけ採用revisionをdetached checkoutし、branch tipへ勝手に進めない。既存cloneは
   HEADと採用SHAの一致まで検査し（detached HEADは要求しない）、reset、clean、stash、merge、rebaseで
-  変形しない。dirty、non-emptyな非repo、target・parent・`.git`のsymlink、`.git` fileでは停止する。
-  認証情報を保存せず、絶対pathを正本へ書かない。`AGENT_ALLOW_LOCAL_REPOSITORY_URL=true`は
-  隔離fixture専用。
+  変形しない。認証情報を保存せず、絶対pathを正本へ書かない。
+  `AGENT_ALLOW_LOCAL_REPOSITORY_URL=true`は隔離fixture専用。
 
 ## run-routine.sh
 
@@ -192,9 +206,8 @@ registryの登録と採用revisionから`projects/<name>/`へ通常cloneを再�
 bash tools/run-routine.sh maintenance [--dry-run|--full]
 ```
 
-Scheduler起点のRoutine Executor。lock、preflight、
-cache鮮度、validator実行、任意推論、隔離検証、scoped commit、policy準拠backupの規則は
-`routines/ROUTINES.md`と各`ROUTINE.md`が所有する。出力はstdout最終1行の
+Scheduler起点のRoutine Executor。lock、preflight、cache鮮度、検証、任意推論、scoped commit、
+policy準拠backupの規則は`routines/ROUTINES.md`と各`ROUTINE.md`が所有する。出力はstdout最終1行の
 `ROUTINE_NOOP|OK|SKIPPED|BLOCKED|FAILED`、詳細はstderrと`.agent-cache/routines/logs/`。
 
 ## manage-routine-schedule.sh
@@ -234,32 +247,11 @@ bash tools/validate-agent-directory.sh [--strict] [--full] [--changed] [--base <
 ある。AGENTS三層とProject docsの完全な構造規則は`projects/PROJECTS.md`が所有し、validatorは
 境界とサイズだけを固定する。どのmodeも実GitHub接続、`gh` CLI、認証情報を必要としない。
 
-## check-boundary.sh
+## check-boundary.sh / install-git-hooks.sh
 
-```bash
-tools/check-boundary.sh [--staged | --base <ref> | --range <old> <new>] [--policy <file>] [--path-prefix <prefix>]
-```
-
-commit・push境界のPortable Verifier。差分をpolicy（既定は`tools/control-policy.tsv`、執行時は
-hookが渡すsnapshot）へ照らし、合格は`BOUNDARY_OK checked=<n> guarded=<n> contract=<n>`、拒否は
-`BOUNDARY_BLOCKED reason=<reason>`をstdoutへ1行で出して非0で終了する（詳細はstderrの`DETAIL:`）。
-renameは旧pathの削除と新pathの追加へ分解し、stagedモードではmixed-scopeを機械拒否する。
-`--range`（push再検査）はforbidden / frozenだけを執行する。環境変数rootと実Git rootの食い違いは
-`root-mismatch`で拒否する。tier意味論、ack・receipt条件、違反分類は`tools/CONTROL.md`が所有し、
-扱うときだけ読む。ネットワークへ接続しない。
-
-## install-git-hooks.sh
-
-```bash
-bash tools/install-git-hooks.sh --install|--status|--remove
-```
-
-managed hook（pre-commit=snapshot verifier実行とreceipt検査、pre-push=ref削除・非fast-forward
-拒否と送信内容再検査）と承認済みsnapshot（`.git/agent-control/`）を、workspace HEADのblobから
-workspace rootとmaterialize済み全Independent repositoryへ冪等に導入する（working tree版を
-導入元にしない）。marker行のない既存hookへは触れず`HOOKS_BLOCKED`で停止し、`--remove`も
-managed hookだけを除去する。出力は`HOOKS_INSTALLED|HOOKS_STATUS|HOOKS_REMOVED|HOOKS_BLOCKED`の
-1行（independent数を含む）。hookは境界検査だけを行い、backup・validator・ネットワーク操作を
+commit・push境界のPortable Verifierと、managed hook・承認済みsnapshotのinstaller。usage、
+結果line、導入・除去の契約、tier意味論、ack・receipt条件、違反分類は`tools/CONTROL.md`が
+所有し、扱うときだけ読む。hookは境界検査だけを行い、backup・validator・ネットワーク操作を
 起動しない（`tools/BACKUP.md`の非ゴールを変更しない）。
 
 ## サイズ予算
