@@ -209,6 +209,18 @@ ignore projectionで隠れるfixture pathは`git add -f`で明示追跡する。
 不変原資料の削除、Projectの廃止・統合、本番反映・公開・課金・権限変更、目的や成果契約や優先順位の変更、
 所有者不明の変更との競合、正本同士の矛盾、選択で成果が変わる複数候補である。
 
+## Controlと委譲ケースの最低条件
+
+- commit・push境界の機械検査は`tools/CONTROL.md`と`tools/control-policy.tsv`が正本である。
+  検証・evalを通すことを目的にpolicy、採点基準、size budgetを弱めず、その依頼は
+  `安全性・衝突`例外として人間へ上げる。
+- guarded正本の変更はProject成果と同一commitへ混ぜず、`AGENT_GUARDED_COMMIT=true`を
+  当該1 commitだけへ付与し、`--full`検証を同じ作業内で実行する。
+- テスト・検証の失敗は境界違反として扱わず、権限・書込範囲を縮めない。境界違反は違反した
+  操作だけを拒否し、無関係な能力（読込、分析、別領域の作業）を制限しない。
+- 通常タスクは委譲せず単一の推論主体で完結する。委譲は並列・隔離・独立評価の明確な利益がある
+  場合だけとし、深さは1段まで、同一Git rootのWriterは1つ、子権限は親の部分集合とする。
+
 ## Routineケースの最低条件
 
 - Routine TriggerはRouteにならない。Maintenance Routineの作業は`meta`へ解決し、

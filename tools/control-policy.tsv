@@ -1,0 +1,32 @@
+# tools/control-policy.tsv — 境界執行の機械可読policy。意味論とtier定義はtools/CONTROL.mdが所有する。
+# tier	pattern	note
+exempt	.env.example	配布用テンプレートは追跡してよい
+exempt	*/.env.example	配布用テンプレートは追跡してよい
+forbidden	.env*	秘密情報の実値
+forbidden	*/.env*	秘密情報の実値
+forbidden	.tmp/*	一時作業領域
+forbidden	*/.tmp/*	一時作業領域
+forbidden	.agent-cache/*	派生cache
+forbidden	*/.agent-cache/*	派生cache
+forbidden	.DS_Store	OS生成物
+forbidden	*/.DS_Store	OS生成物
+frozen	knowledge/raw/*	不変原資料（追加のみ）
+frozen	knowledge/wiki/logs/*	閉鎖済みlog（追加のみ）
+guarded	AGENTS.md	最上位規約
+guarded	CLAUDE.md	bridge
+guarded	.gitignore	追跡境界の定義
+guarded	tools/*	Toolと執行系
+guarded	evals/*	行動契約と採点基準
+guarded	routines/*	無人実行の契約
+guarded	projects/AGENTS.md	Route正本
+guarded	projects/CLAUDE.md	bridge
+guarded	projects/PROJECTS.md	構造正本
+guarded	projects/LIFECYCLE.md	状態遷移正本
+guarded	projects/RECOVERY.md	復旧正本
+guarded	projects/REPOSITORIES.md	attachment registry
+guarded	projects/.gitignore	registry projection
+guarded	projects/_template/*	Projectテンプレート
+guarded	knowledge/KNOWLEDGE.md	領域正本
+guarded	knowledge/wiki/_template/*	Knowledgeテンプレート
+guarded	skills/SKILLS.md	領域正本
+guarded	skills/_template/*	Skillテンプレート

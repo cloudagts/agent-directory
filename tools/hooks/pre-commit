@@ -1,0 +1,15 @@
+#!/bin/bash
+# agent-directory managed hook v1 — pre-commit
+# 境界検査だけを行う。backup・validator・ネットワーク操作を起動しない（tools/CONTROL.md）。
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+verifier="$repo_root/tools/check-boundary.sh"
+
+if [[ ! -x "$verifier" ]]; then
+  printf 'BOUNDARY_BLOCKED reason=missing-verifier\n' >&2
+  printf 'DETAIL: %s is missing or not executable; restore it, or reinstall hooks via tools/install-git-hooks.sh\n' "$verifier" >&2
+  exit 1
+fi
+
+exec /bin/bash "$verifier" --staged

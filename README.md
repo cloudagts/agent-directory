@@ -14,8 +14,9 @@ Knowledge、Skill、Projectを正本として育てながら、1タスクの読�
 1. このリポジトリをエージェント1体につき1つコピーまたはクローンする。
 2. [AGENTS.md](AGENTS.md)の`<agent-name>`、役割、使命、ビジョンを置換する。
 3. `skills/_template/`または`projects/_template/`を、明示された必要に応じてコピーする。
-4. `bash tools/validate-agent-directory.sh --strict --full`を実行する。
-5. `tools/find-context.sh --route <route> --limit 5 -- "検索語"`で対象候補を絞って運用する。
+4. `bash tools/install-git-hooks.sh --install`でcommit・push境界の検査hookを導入する。
+5. `bash tools/validate-agent-directory.sh --strict --full`を実行する。
+6. `tools/find-context.sh --route <route> --limit 5 -- "検索語"`で対象候補を絞って運用する。
 
 テンプレートのままではプレースホルダーが残るため、通常の検証は合格し、`--strict`は導入完了まで失敗する。
 
@@ -164,6 +165,10 @@ validatorは構造、`AGENTS.md`と`CLAUDE.md`の三層、frontmatter、Project�
 Knowledgeページの削除は通常workとして通らない。meta正本への変更は全体静的検査へ自動fallbackする。
 依存関係、CI、GitHub接続を必要としない。
 
+commit・push境界は[tools/CONTROL.md](tools/CONTROL.md)のpolicyを`tools/check-boundary.sh`が判定し、
+導入済みのgit hooks（pre-commit / pre-push）が強制する。判定はAIハーネスに依存せず、hookは
+境界検査だけを行いbackupや検証を起動しない。
+
 ## Routine（自律定期保守）
 
 `routines/`は、SchedulerがAgentを起動するTrigger層である。RoutineはRouteではなくTriggerであり、
@@ -272,6 +277,7 @@ triggerは検証済みcommitの後、破壊的変更前のcheckpoint、採用rev
 | [evals/EVALS.md](evals/EVALS.md) | 振る舞いevalの契約、ケースschema、fixture、最低条件 |
 | [tools/TOOLS.md](tools/TOOLS.md) | Toolの入出力、自律commit、自己修復、サイズ超過、fallback、予算 |
 | [tools/BACKUP.md](tools/BACKUP.md) | backup trigger、remote分類、失敗と復旧、divergence、Single Writer |
+| [tools/CONTROL.md](tools/CONTROL.md) | 境界執行の三層、policy tier、明示エスカレーション、違反分類と代謝、委譲境界、導入基準 |
 
 ## ライセンス
 

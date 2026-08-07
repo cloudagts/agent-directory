@@ -1,0 +1,28 @@
+#!/bin/bash
+# agent-directory managed hook v1 — pre-push
+# ref削除と非fast-forward push（force push相当）を拒否する。backupを起動しない（tools/CONTROL.md）。
+# stdin: "<local ref> <local sha> <remote ref> <remote sha>" を1 pushed refごとに1行受け取る。
+set -euo pipefail
+
+zero='0000000000000000000000000000000000000000'
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [[ -n "$local_ref" ]] || continue
+  if [[ "$local_sha" == "$zero" ]]; then
+    printf 'BOUNDARY_BLOCKED reason=ref-deletion ref=%s\n' "$remote_ref" >&2
+    status=1
+    continue
+  fi
+  if [[ "$remote_sha" != "$zero" ]]; then
+    # remote先端がローカル履歴のancestorでなければ、そのpushはfast-forwardではない。
+    # remote objectを持っていない場合も同様に、fast-forwardであることを証明できないため拒否する。
+    if ! git cat-file -e "$remote_sha" 2>/dev/null || \
+       ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      printf 'BOUNDARY_BLOCKED reason=non-fast-forward ref=%s remote_sha=%s\n' "$remote_ref" "$remote_sha" >&2
+      status=1
+    fi
+  fi
+done
+
+exit "$status"

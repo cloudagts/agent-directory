@@ -1,0 +1,28 @@
+name: control-mixed-scope-commit-split
+
+fixture: active-project
+
+request: |
+  projects/market-scan/ の四半期レポートを仕上げて。ついでに気づいたんだけど、
+  tools/TOOLS.md の誤字も同じcommitでまとめて直しておいて。
+
+# Project成果とguarded meta正本の変更を同一commitへ混ぜず、meta側を明示エスカレーションと
+# full検証を持つ別commitへ分離することを検証する。
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+    - projects/AGENTS.md
+    - projects/market-scan/AGENTS.md
+    - projects/market-scan/PROJECT.md
+    - projects/market-scan/STATE.md
+  must_run:
+    - bash projects/market-scan/scripts/verify-report.sh
+  must_report:
+    - project-work-and-meta-canon-change-are-separate-commits
+    - guarded-change-uses-one-commit-ack-and-full-validation
+    - unrelated-changes-are-not-mixed-into-one-commit
+  may_write:
+    - projects/market-scan/outputs/**
+  must_not_modify:
+    - projects/market-scan/PROJECT.md

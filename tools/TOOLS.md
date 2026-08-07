@@ -43,6 +43,9 @@ Markdown、原資料、Project入出力、eval、Toolコードが正本である
 - 作業ツリーから自分の変更を安全に分離できる（書込Git rootはsession毎に1つ）。
 - commitが意味的に一つの作業単位である。
 
+hooks導入済み環境では、commit・push境界を`tools/check-boundary.sh`が機械検査する（正本は
+`tools/CONTROL.md`。guarded正本の変更は明示エスカレーションと`--full`検証を要する）。
+
 commit messageは変更内容と理由が分かる一文を先頭に置く。中断時は残件を明記した
 checkpoint commitを作ってよいが、完了報告にも成果契約の達成にもしない。commit後は`tools/BACKUP.md`の
 triggerとpolicyが許す場合だけbackupまたは通常pushへ進む。
@@ -231,6 +234,30 @@ bash tools/validate-agent-directory.sh [--strict] [--full] [--changed] [--base <
 ある。AGENTS三層とProject docsの完全な構造規則は`projects/PROJECTS.md`が所有し、validatorは
 境界とサイズだけを固定する。どのmodeも実GitHub接続、`gh` CLI、認証情報を必要としない。
 
+## check-boundary.sh
+
+```bash
+tools/check-boundary.sh [--staged | --base <ref>]
+```
+
+commit境界のPortable Verifier。staged差分（既定）または`--base`差分を`tools/control-policy.tsv`へ
+照らし、合格は`BOUNDARY_OK checked=<n>`、拒否は`BOUNDARY_BLOCKED reason=<reason>`をstdoutへ1行で
+出して非0で終了する（詳細はstderrの`DETAIL:`）。renameは旧pathの削除と新pathの追加へ分解して
+判定する。tierの意味論、`AGENT_GUARDED_COMMIT`のエスカレーション条件、違反分類は
+`tools/CONTROL.md`が所有し、扱うときだけ読む。ネットワークへ接続しない。
+
+## install-git-hooks.sh
+
+```bash
+bash tools/install-git-hooks.sh --install|--status|--remove
+```
+
+`tools/hooks/`のmanaged hook（pre-commit=verifier実行、pre-push=ref削除・非fast-forward拒否）を
+`.git/hooks`へ冪等に導入する。marker行のない既存hookへは触れず`HOOKS_BLOCKED`で停止し、
+`--remove`もmanaged hookだけを除去する。出力は`HOOKS_INSTALLED|HOOKS_STATUS|HOOKS_REMOVED|
+HOOKS_BLOCKED`の1行。hookは境界検査だけを行い、backup・validator・ネットワーク操作を起動しない
+（`tools/BACKUP.md`の非ゴールを変更しない）。
+
 ## サイズ予算
 
 モデル非依存で安定するUTF-8 byteをhard limitに使い、行数と見出し数は可読性警告だけに使う。
@@ -242,7 +269,7 @@ bash tools/validate-agent-directory.sh [--strict] [--full] [--changed] [--base <
 | `AGENTS.md`（ルート） | 8KiB。4KiB超はwarning |
 | `projects/AGENTS.md` | 2KiB |
 | `projects/<name>/AGENTS.md` | 2KiB |
-| `knowledge/KNOWLEDGE.md`・`tools/TOOLS.md`・`tools/BACKUP.md`・`PROJECT.md` / `SKILL.md` | 20KiB |
+| `knowledge/KNOWLEDGE.md`・`tools/TOOLS.md`・`tools/BACKUP.md`・`tools/CONTROL.md`・`PROJECT.md` / `SKILL.md` | 20KiB |
 | `projects/PROJECTS.md`・`evals/EVALS.md`・`ARCHITECTURE.md`・`docs/<DOMAIN>.md` | 24KiB |
 | `skills/SKILLS.md` | 12KiB |
 | `routines/ROUTINES.md` | 16KiB |
