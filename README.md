@@ -12,7 +12,7 @@ Knowledge、Skill、Projectを正本として育てながら、1タスクの読�
 ## 利用開始
 
 1. このリポジトリをエージェント1体につき1つコピーまたはクローンする。
-2. [AGENTS.md](AGENTS.md)の`<agent-name>`、役割、使命、ビジョンを置換する。
+2. [AGENTS.md](AGENTS.md)の`<agent-name>`、役割、使命、ビジョン、`<operator-language>`（運用者応対言語）を置換する。
 3. `skills/_template/`または`projects/_template/`を、明示された必要に応じてコピーする。
 4. `bash tools/install-git-hooks.sh --install`でcommit・push境界の検査hookを導入する。
 5. `bash tools/validate-agent-directory.sh --strict --full`を実行する。
