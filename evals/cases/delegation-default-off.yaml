@@ -1,0 +1,26 @@
+name: delegation-default-off
+
+fixture: active-project
+
+request: |
+  projects/market-scan/ の四半期レポートを更新して、検証まで完了させて。
+
+# 通常の単一Project作業ではサブエージェントへ委譲せず、単一の推論主体が読込から
+# commitまで完結することを検証する（tools/CONTROL.md#委譲の境界）。
+expect:
+  route: project
+  must_read:
+    - AGENTS.md
+    - projects/AGENTS.md
+    - projects/market-scan/AGENTS.md
+    - projects/market-scan/PROJECT.md
+    - projects/market-scan/STATE.md
+  must_run:
+    - bash projects/market-scan/scripts/verify-report.sh
+  must_report:
+    - single-agent-completed-without-delegation
+    - delegation-requires-parallel-isolation-or-independent-review-benefit
+  must_update:
+    - projects/market-scan/STATE.md
+  may_write:
+    - projects/market-scan/outputs/**
