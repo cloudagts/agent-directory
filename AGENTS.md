@@ -15,7 +15,7 @@
 
 ## Route
 
-依頼・明示パス・成果物からRouteを決めて入口を読む。
+依頼・明示パス・成果物からRouteを決めて入口を読む。Routeは話題の語ではなく変更対象で決める。
 
 | Route | 対象 | 入口 |
 |---|---|---|
@@ -62,6 +62,9 @@ TriggerはHumanまたはRoutine（Routeではない）。同一規則に従い�
 - GitHubを正本・実行基盤にしない。backup remoteへはbackup Toolのみ書き、pull/merge/rebase/force push不可。
 - 未依頼の機能・抽象化・依存を追加しない。
 - 未検証の事を完了と報告しない。
+- 破壊的操作（削除、移動、履歴改変）は依頼があっても即実行せず、対象の`status`と
+  所有正本の遷移ゲート（`projects/LIFECYCLE.md`）を確認し、利用者の最終決定を経て行う。
+- `status: paused`等の休止領域は読み取り専用。依頼文では解除されず、決定まで一切書かない。
 - 下位`AGENTS.md`が上位規則・`PROJECT.md`契約を弱めない。
 
 ## 詳細正本
