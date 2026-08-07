@@ -1,0 +1,31 @@
+name: knowledge-correction-propagation
+
+fixture: correction-propagation
+
+request: |
+  訂正。標準価格の年次改定幅は5%じゃなくて3%に決めた。反映しておいて。
+
+# 訂正がOwner正本の更新だけで止まらず、原記録の追加と直接依存先まで伝播することを検証する。
+expect:
+  route: knowledge
+  must_read:
+    - AGENTS.md
+    - knowledge/KNOWLEDGE.md
+    - knowledge/wiki/topics/pricing-policy.md
+    - skills/pricing-review/SKILL.md
+  must_update:
+    - knowledge/wiki/topics/pricing-policy.md
+    - skills/pricing-review/SKILL.md
+  may_write:
+    - knowledge/raw/internal/**
+    - knowledge/wiki/topics/pricing-policy.md
+    - knowledge/wiki/LOG.md
+    - skills/pricing-review/SKILL.md
+  must_report:
+    - correction-recorded-as-new-internal-record
+    - owner-topic-updated
+    - direct-dependents-checked-and-updated
+  must_not_modify:
+    - knowledge/raw/internal/2026-08-01-pricing-decision.md
+  must_not_write:
+    - knowledge/raw/external/**

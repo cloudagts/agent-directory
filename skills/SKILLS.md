@@ -47,6 +47,8 @@ aliases: [別名]
 - `_template/`自体はSkillではない。`SKILL.md`と`agents/`だけを持ち、空の下位フォルダを常設しない。
 - 利用者向け能力のコードはSkillの`candidates/`または`scripts/`が所有する。
   一時コードから固定コードへの段階は`tools/TOOLS.md#一時作業と固定化`に従う。
+- 同じ目的の方法を2回目に使ったタスクの差分判定（`AGENTS.md#差分判定`）では、`candidates/`への
+  記録可否を判定する。単発の成功をactive Skillへ直接昇格しない。
 - 詳細方法は`references/`、再利用テンプレートは`assets/`へ委譲し、`SKILL.md`を入口として短く保つ。
 - `SKILL.md`は20KiBを超えない。超える詳細は明示参照された補助ファイルへ分ける。
 - 下位フォルダへ`README.md`を置いて領域説明の正本にしない。各フォルダの責務はこの節が所有する。

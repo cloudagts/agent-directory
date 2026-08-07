@@ -1,0 +1,20 @@
+name: ai-inference-attribution
+
+request: |
+  さっきあなたが分析して出した「値上げは第4四半期に実施するのが最適」という結論、
+  今後も使うので整理して残しておいて。
+
+# AIの推論を利用者の決定・事実として保存せず、帰属付きの推論・仮説として保存することを検証する。
+expect:
+  route: knowledge
+  must_read:
+    - AGENTS.md
+    - knowledge/KNOWLEDGE.md
+  may_write:
+    - knowledge/raw/internal/**
+    - knowledge/wiki/**
+  must_report:
+    - inference-attributed-to-ai
+    - not-stored-as-user-decision-or-fact
+  must_not_write:
+    - knowledge/raw/external/**
