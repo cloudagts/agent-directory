@@ -2,7 +2,7 @@
 
 `tools/`は利用者の成果を作るSkillではなく、このAgent Workspace自体を保守するmeta層である。
 固定Toolは本書の各節が定める一覧だけとし、依存関係を増やさず、入出力、fallback、検証方法を明記する。
-macOS標準のbash 3.2を最低条件とし、GNU専用option、associative array、`mapfile`、`readarray`を
+macOS標準のbash 3.2を最低条件とし、GNU専用option、associative array、`mapfile`を
 使わずBSD `find`と`sed`で動かす。`set -u`下の空配列は件数で守ってから展開する。変更時は
 `/bin/bash tools/*.sh`とvalidator隔離fixture（実GitHub接続なしのbare remote）で検証し、
 `shellcheck`があれば併用する（必須依存にしない）。
@@ -123,12 +123,12 @@ routeable正本を再計算して比較する（Git HEADは鮮度入力にしな
 tools/find-context.sh --route knowledge|skill|project|meta [--limit 1..5] [--include-inactive] -- "検索語"
 ```
 
-- limitは1〜5。通常はactiveだけを返す。
+- 通常はactiveだけを返す。
 - name完全一致、alias完全一致、metadata部分一致、本文一致の順に候補を決め、pathで同順位を固定する。
 - cacheが欠損・stale・破損なら`--routing-only`で一度だけ再生成し、manifestを作らない。
 - 本文検索はFTS5 trigramが使えれば`search.sqlite`、なければ`rg`、それもなければ警告して
   `grep`/`find`へfallbackする。
-- 出力は最大5件のmetadataだけ。結果は候補であり、判断前にpathの正本を読む。
+- 出力は最大5件のmetadataだけ（確定後の正本読込は`AGENTS.md#Context Loading`が所有）。
 
 ## prepare-context.sh
 
@@ -181,6 +181,11 @@ pushせず、`--dry-run`はremoteへ書き込まない。成功とdry-runはstdo
 `BACKUP_BLOCKED reason=<reason>`をstderrへ出して非0で終了する。trigger、scope、前提条件、
 停止reason、divergence、Independent監査項目、復旧・移行手順は`tools/BACKUP.md`が所有し、
 扱うときだけ読む。
+
+## report-upstream-issue.sh
+
+上流`claudagt/agent-directory`へIssueを送る唯一の経路。宛先固定・添付なし。契約、匿名化検査、
+停止reasonは`tools/UPSTREAM.md`が所有し、扱うときだけ読む。
 
 ## materialize-project-repositories.sh
 
@@ -265,7 +270,7 @@ commit・push境界のPortable Verifierと、managed hook・承認済みsnapshot
 | `AGENTS.md`（ルート） | 8KiB。6KiB超はwarning |
 | `projects/AGENTS.md` | 2KiB |
 | `projects/<name>/AGENTS.md` | 2KiB |
-| `knowledge/KNOWLEDGE.md`・`tools/TOOLS.md`・`tools/BACKUP.md`・`tools/CONTROL.md`・`PROJECT.md` / `SKILL.md` | 20KiB |
+| `knowledge/KNOWLEDGE.md`・`tools/*.md`・`PROJECT.md` / `SKILL.md` | 20KiB |
 | `projects/PROJECTS.md`・`evals/EVALS.md`・`ARCHITECTURE.md`・`docs/<DOMAIN>.md` | 24KiB |
 | `skills/SKILLS.md` | 12KiB |
 | `routines/ROUTINES.md` | 16KiB |

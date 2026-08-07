@@ -59,12 +59,13 @@ AIの推論を利用者の決定・事実として保存しない（帰属は`kn
 | 外部影響 | 公開、本番、送信、権限、承認push | `projects/PROJECTS.md` |
 | 安全性・衝突 | divergence、Single Writer違反、秘密情報、所有者不明変更 | `tools/CONTROL.md` |
 
-決定方針は正本へ記録し繰り返し質問しない。
+決定方針は正本へ記録し繰り返し質問しない。上流Issue報告だけは、`tools/UPSTREAM.md`の
+検査を通過し宛先固定Toolで送る場合に限り事前承認済みの送信とする。
 
 ## 禁止事項
 
 - APIキー・パスワード等を保存・コミットしない（実値は`.env*`のみ）。
-- GitHubを正本・実行基盤にしない。backup remoteへはbackup Toolのみ書き、pull/merge/rebase/force push不可。
+- GitHubを正本・実行基盤にしない。GitHubへはbackup Tool（backup remote）と上流報告Toolのみ書き、pull/merge/rebase/force push不可。
 - 未依頼の機能・抽象化・依存を追加しない。
 - 未検証の事を完了と報告しない。
 - 破壊的操作（削除、移動等）は依頼があっても即実行せず、対象の`status`と
@@ -78,6 +79,7 @@ AIの推論を利用者の決定・事実として保存しない（帰属は`kn
 - `projects/LIFECYCLE.md` / `projects/RECOVERY.md` — 状態遷移 / 復旧
 - `tools/TOOLS.md` — task class、探索、commit、自己修復、予算
 - `tools/BACKUP.md` — backup、remote分類、divergence、Single Writer
+- `tools/UPSTREAM.md` — 上流Issue報告、匿名化検査、送信条件
 - `tools/CONTROL.md` — 境界執行と違反分類
 - `evals/EVALS.md` — 振る舞いevalの契約
 
