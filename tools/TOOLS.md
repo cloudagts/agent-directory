@@ -109,7 +109,7 @@ Tool呼び出しへまとめ、成功時出力は短く保つ。現在目標、�
 | `finalize-task.sh` | work/state専用の決定的終端（検証・commit・backup） | `tools/REFERENCE.md` |
 | `append-knowledge-log.sh` | LOG追記とローテーション | `tools/REFERENCE.md` |
 | `backup-to-github.sh` | root backup remoteへpushする唯一の標準経路 | `tools/REFERENCE.md` |
-| `report-upstream-issue.sh` | 上流Issue送信の唯一の経路（宛先固定・添付なし） | `tools/UPSTREAM.md` |
+| `report-upstream-issue.sh` | 上流Issue送信の唯一の経路（宛先許可リスト固定・添付なし） | `tools/UPSTREAM.md` |
 | `materialize-project-repositories.sh` | registryからclone再現（復旧・移行・partial解消） | `tools/REFERENCE.md` |
 | `run-routine.sh` | Scheduler起点のRoutine Executor | `tools/REFERENCE.md` |
 | `manage-routine-schedule.sh` | user crontab / LaunchAgentのSchedule管理 | `tools/REFERENCE.md` |

@@ -99,7 +99,8 @@ pushせず、`--dry-run`はremoteへ書き込まない。成功とdry-runはstdo
 
 ## report-upstream-issue.sh
 
-上流`claudagt/agent-directory`へIssueを送る唯一の経路。宛先固定・添付なし。契約、匿名化検査、
+許可リスト内の公開上流（既定`claudagt/agent-directory`、`--repo`でリスト内から選択）へ
+Issueを送る唯一の経路。宛先は許可リスト固定・添付なし。契約、宛先許可リスト、匿名化検査、
 停止reasonは`tools/UPSTREAM.md`が所有し、扱うときだけ読む。
 
 ## materialize-project-repositories.sh
