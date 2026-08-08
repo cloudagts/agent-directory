@@ -1307,6 +1307,21 @@ check_heading_warning "$repo_root/projects/PROJECTS.md" 30
 if [[ "$strict" == true ]]; then
   if grep -Eq '<agent-name>|<agent-role>|<agent-mission>|<agent-vision>|<operator-language>|<project-dir>' "$repo_root/AGENTS.md"; then
     fail 'AGENTS.md contains unresolved agent definition placeholders'
+  elif [[ -f "$repo_root/tools/report-upstream-issue.sh" ]]; then
+    # A deployed tree must declare at least one backticked real name on the identity line;
+    # an unbackticked name would leave the agent-name rule with nothing to check (leak side).
+    # The report tool owns the extraction predicate, so probe it instead of duplicating the parser.
+    strict_probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-strict-probe.XXXXXX")"
+    cleanup_paths+=("$strict_probe_dir")
+    printf 'strict self-definition probe body\n' > "$strict_probe_dir/body.md"
+    set +e
+    strict_probe_output="$(AGENT_CACHE_DIR="$strict_probe_dir" \
+      bash "$repo_root/tools/report-upstream-issue.sh" \
+      --title '[bug] strict self-definition probe' --body-file "$strict_probe_dir/body.md" --dry-run 2>&1)"
+    set -e
+    if printf '%s\n' "$strict_probe_output" | grep -Fq 'reason=anonymization-source-unparsed'; then
+      fail 'AGENTS.md#自己定義 identity line declares no backticked agent name; the anonymization check has nothing to run on (tools/UPSTREAM.md#公開禁止情報)'
+    fi
   fi
   while IFS= read -r -d '' case_file; do
     if grep -Fq '<skill-name>' "$case_file"; then
@@ -2246,22 +2261,23 @@ if (( finalize_probe_status == 0 )) || \
   fail 'finalize-task.sh must refuse a call arriving with an escalation ack preset'
 fi
 
-# report-upstream-issue.sh anonymization is notation-independent and fail-closed: every
-# backticked token in AGENTS.md#自己定義 is checked (prose form, any number of names), an
-# unparseable self-definition blocks instead of silently skipping the rule, and the upstream
-# revision resolves from the declared adoption when merge-base cannot (3-way port workspaces).
-# The probes stay on --dry-run, which never writes to the network.
+# report-upstream-issue.sh anonymization derives block terms from the identity line of
+# AGENTS.md#自己定義 (any heading depth) and is fail-closed on the number of checks that
+# actually ran, not on the number of extracted tokens. The probes loop over every declared
+# name (any sort position), any length and writing system, independent of the caller locale,
+# and cover the --search mode. The probes stay on --dry-run, which never writes to the network.
 upstream_fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-upstream.XXXXXX")"
 upstream_fixture_cache_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-validator-upstream-cache.XXXXXX")"
 cleanup_paths+=("$upstream_fixture_dir" "$upstream_fixture_cache_dir")
 {
   printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
-    '- あなたは検査fixtureに特化した実行主体、`fixture-probe-agent`（`Fixture合同会社`／`Fixture Probe LLC`）。' '' \
+    '- あなたは検査fixtureに特化した実行主体、`fixture-probe-agent`（`Fixture合同会社`／`Fixture Probe LLC`）。' \
+    '- **運用者応対言語:** `English`。' \
+    '- `<...>`は導入時に置換する。' '' \
     '## 共通判断原則'
 } > "$upstream_fixture_dir/AGENTS.md"
-printf 'fixture-probe-agent のworkspaceで観測した。\n' > "$upstream_fixture_dir/body-first-name.md"
-printf 'Fixture合同会社 の運用で観測した。\n' > "$upstream_fixture_dir/body-middle-name.md"
 printf 'privateなdownstream Workspaceの通常作業中に観測した。\n' > "$upstream_fixture_dir/body-clean.md"
+printf 'The bootloader is written in English.\n' > "$upstream_fixture_dir/body-language.md"
 upstream_probe() {
   set +e
   upstream_probe_output="$(AGENT_DIRECTORY_ROOT="$upstream_fixture_dir" \
@@ -2271,20 +2287,56 @@ upstream_probe() {
   upstream_probe_status=$?
   set -e
 }
-upstream_probe "$upstream_fixture_dir/body-first-name.md"
-if (( upstream_probe_status == 0 )) || \
-  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
-  fail 'report-upstream-issue.sh must block an agent name written in prose self-definition notation'
-fi
-upstream_probe "$upstream_fixture_dir/body-middle-name.md"
-if (( upstream_probe_status == 0 )) || \
-  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
-  fail 'report-upstream-issue.sh must check every backticked self-definition name, not only the last one'
-fi
+# Every declared name must block, whatever its position in the sorted extraction (first,
+# middle, and last are all probed so no single-name regression can pass unnoticed).
+for upstream_probe_name in 'Fixture Probe LLC' 'Fixture合同会社' 'fixture-probe-agent'; do
+  printf '%s の運用で観測した。\n' "$upstream_probe_name" > "$upstream_fixture_dir/body-name.md"
+  upstream_probe "$upstream_fixture_dir/body-name.md"
+  if (( upstream_probe_status == 0 )) || \
+    ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
+    fail 'report-upstream-issue.sh must check every declared self-definition name, whatever its sort position'
+  fi
+done
 upstream_probe "$upstream_fixture_dir/body-clean.md"
 if (( upstream_probe_status != 0 )); then
   fail "report-upstream-issue.sh dry-run failed on an anonymized body: $(printf '%s' "$upstream_probe_output" | head -n 2 | tr '\n' ' ')"
 fi
+# The operator interaction language is a contract value, not a proper noun: a body naming
+# the language must pass even though the language sits backticked in the self-definition.
+upstream_probe "$upstream_fixture_dir/body-language.md"
+if (( upstream_probe_status != 0 )); then
+  fail 'report-upstream-issue.sh must not treat the operator interaction language as an agent name'
+fi
+# A short CJK name is still a declared proper noun: no length guard, no locale dependence.
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは`甲乙丙`（役割:`検査fixture`）。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+printf '甲乙丙 のworkspaceで観測した。\n' > "$upstream_fixture_dir/body-short-name.md"
+set +e
+upstream_probe_output="$(LANG=ja_JP.UTF-8 LC_ALL='' AGENT_DIRECTORY_ROOT="$upstream_fixture_dir" \
+  AGENT_CACHE_DIR="$upstream_fixture_cache_dir" \
+  bash "$repo_root/tools/report-upstream-issue.sh" \
+  --title '[bug] fixture probe' --body-file "$upstream_fixture_dir/body-short-name.md" --dry-run 2>&1)"
+upstream_probe_status=$?
+set -e
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
+  fail 'report-upstream-issue.sh must block a 3-character declared name under a UTF-8 locale'
+fi
+# The section is found by heading text, not by heading depth.
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## Agent' '' '### 自己定義' '' \
+    '- あなたは`fixture-probe-agent`（役割:`検査fixture`）。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+printf 'fixture-probe-agent のworkspaceで観測した。\n' > "$upstream_fixture_dir/body-name.md"
+upstream_probe "$upstream_fixture_dir/body-name.md"
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
+  fail 'report-upstream-issue.sh must find the self-definition section at any heading depth'
+fi
+# Fail-closed distinctions: no backticked name on the identity line, placeholders only,
+# and a missing section each block instead of silently skipping the agent-name rule.
 {
   printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
     '- あなたは名を名乗らない散文だけの実行主体。' '' '## 共通判断原則'
@@ -2293,6 +2345,51 @@ upstream_probe "$upstream_fixture_dir/body-clean.md"
 if (( upstream_probe_status == 0 )) || \
   ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'reason=anonymization-source-unparsed'; then
   fail 'report-upstream-issue.sh must fail closed when no backticked name is extractable from AGENTS.md#自己定義'
+fi
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは`<agent-name>`（役割:`<agent-role>`）。' \
+    '- `<...>`は導入時に置換する。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'reason=anonymization-source-unparsed'; then
+  fail 'report-upstream-issue.sh must fail closed when every identity-line token is a template placeholder'
+fi
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 挨拶' '' '- 自己定義の見出しを持たない。'
+} > "$upstream_fixture_dir/AGENTS.md"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'reason=anonymization-source-unparsed'; then
+  fail 'report-upstream-issue.sh must fail closed when AGENTS.md has no 自己定義 section'
+fi
+# --search goes through the same anonymization inspection and honors --dry-run.
+{
+  printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
+    '- あなたは`fixture-probe-agent`（役割:`検査fixture`）。' '' '## 共通判断原則'
+} > "$upstream_fixture_dir/AGENTS.md"
+set +e
+upstream_probe_output="$(AGENT_DIRECTORY_ROOT="$upstream_fixture_dir" \
+  AGENT_CACHE_DIR="$upstream_fixture_cache_dir" \
+  bash "$repo_root/tools/report-upstream-issue.sh" \
+  --search 'fixture-probe-agent bootloader' --dry-run 2>&1)"
+upstream_probe_status=$?
+set -e
+if (( upstream_probe_status == 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'violated-rule: agent-name'; then
+  fail 'report-upstream-issue.sh must run the anonymization inspection on --search terms'
+fi
+set +e
+upstream_probe_output="$(AGENT_DIRECTORY_ROOT="$upstream_fixture_dir" \
+  AGENT_CACHE_DIR="$upstream_fixture_cache_dir" \
+  bash "$repo_root/tools/report-upstream-issue.sh" \
+  --search 'bootloader routing budget' --dry-run 2>&1)"
+upstream_probe_status=$?
+set -e
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'UPSTREAM_REPORT_SEARCH_DRY_RUN_OK'; then
+  fail 'report-upstream-issue.sh --search must support --dry-run for clean terms'
 fi
 {
   printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
