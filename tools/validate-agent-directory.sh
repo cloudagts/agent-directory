@@ -44,15 +44,22 @@ knowledge_log_file="$repo_root/$knowledge_log_path"
 knowledge_source_template="$repo_root/$knowledge_source_template_path"
 knowledge_topic_template="$repo_root/$knowledge_topic_template_path"
 
+# Bootstrap placeholder set: single owner of the "is this tree deployed" predicate.
+# Consumers (run-routine.sh strict gating, the strict check below) query --bootstrap-status
+# instead of carrying their own copy, so adding a field cannot desynchronize the predicates.
+agent_definition_placeholders='<agent-name>|<agent-role>|<agent-mission>|<agent-vision>|<operator-language>|<project-dir>'
+
 usage() {
-  printf 'Usage: %s [--strict] [--full] [--changed] [--base <git-ref>]\n' "${0##*/}" >&2
+  printf 'Usage: %s [--strict] [--full] [--changed] [--base <git-ref>] [--bootstrap-status]\n' "${0##*/}" >&2
 }
 
+bootstrap_status_mode=false
 while (( $# > 0 )); do
   case "$1" in
     --strict) strict=true; shift ;;
     --full) full=true; shift ;;
     --changed) changed=true; shift ;;
+    --bootstrap-status) bootstrap_status_mode=true; shift ;;
     --base)
       [[ $# -ge 2 ]] || { usage; exit 2; }
       base_ref="$2"
@@ -61,6 +68,35 @@ while (( $# > 0 )); do
     *) usage; exit 2 ;;
   esac
 done
+
+# Status query, not a check: prints the deployment state of this tree and exits 0.
+# template = every core placeholder still present, deployed = none present, partial = otherwise.
+if [[ "$bootstrap_status_mode" == true ]]; then
+  bootstrap_present=0
+  bootstrap_total=0
+  bootstrap_ifs="$IFS"
+  IFS='|'
+  for bootstrap_placeholder in $agent_definition_placeholders; do
+    case "$bootstrap_placeholder" in
+      '<project-dir>') continue ;; # 任意箇所の残置検査用で、AGENTS.mdの必須置換フィールドではない
+    esac
+    bootstrap_total=$((bootstrap_total + 1))
+    if grep -Fq "$bootstrap_placeholder" "$repo_root/AGENTS.md" 2>/dev/null; then
+      bootstrap_present=$((bootstrap_present + 1))
+    fi
+  done
+  IFS="$bootstrap_ifs"
+  if (( bootstrap_present == 0 )) && \
+    ! grep -Eq "$agent_definition_placeholders" "$repo_root/AGENTS.md" 2>/dev/null; then
+    bootstrap_status='deployed'
+  elif (( bootstrap_present == bootstrap_total )); then
+    bootstrap_status='template'
+  else
+    bootstrap_status='partial'
+  fi
+  printf 'BOOTSTRAP_STATUS status=%s\n' "$bootstrap_status"
+  exit 0
+fi
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -1305,7 +1341,7 @@ check_heading_warning "$repo_root/skills/SKILLS.md" 30
 check_heading_warning "$repo_root/projects/PROJECTS.md" 30
 
 if [[ "$strict" == true ]]; then
-  if grep -Eq '<agent-name>|<agent-role>|<agent-mission>|<agent-vision>|<operator-language>|<project-dir>' "$repo_root/AGENTS.md"; then
+  if grep -Eq "$agent_definition_placeholders" "$repo_root/AGENTS.md"; then
     fail 'AGENTS.md contains unresolved agent definition placeholders'
   elif [[ -f "$repo_root/tools/report-upstream-issue.sh" ]]; then
     # A deployed tree must declare at least one backticked real name on the identity line;
@@ -1737,6 +1773,10 @@ grep -Fq 'report-upstream-issue.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register report-upstream-issue.sh'
 grep -Fq 'tools/UPSTREAM.md' "$repo_root/AGENTS.md" || \
   fail 'AGENTS.md does not route upstream issue reporting to tools/UPSTREAM.md'
+# The operator interaction language contract is presence-checked like the other bootloader
+# contracts: deleting the three lines must fail even outside --strict (#28).
+grep -Fq '運用者応対言語' "$repo_root/AGENTS.md" || \
+  fail 'AGENTS.md does not carry the operator interaction language contract (運用者応対言語)'
 grep -Fq 'materialize-project-repositories.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register materialize-project-repositories.sh'
 grep -Fq 'prepare-context.sh' "$repo_root/tools/TOOLS.md" || \
@@ -1923,6 +1963,13 @@ done
 if [[ -f "$repo_root/tools/run-routine.sh" ]]; then
   grep -Fq 'unknown-routine' "$repo_root/tools/run-routine.sh" || \
     fail 'tools/run-routine.sh does not reject unknown routine ids'
+  # The deployment predicate has exactly one owner (--bootstrap-status). A second placeholder
+  # copy in run-routine.sh is how #29 happened: one list updated, the other left behind.
+  grep -Fq -- '--bootstrap-status' "$repo_root/tools/run-routine.sh" || \
+    fail 'tools/run-routine.sh must query the validator --bootstrap-status instead of testing placeholders itself'
+  if grep -Fq '<agent-name>' "$repo_root/tools/run-routine.sh"; then
+    fail 'tools/run-routine.sh must not carry its own copy of the agent definition placeholder set'
+  fi
   for forbidden_routine_git in reset clean stash pull merge rebase push; do
     if grep -Eq "git[^#]*[[:space:]]$forbidden_routine_git([[:space:]]|\$)" "$repo_root/tools/run-routine.sh"; then
       fail "tools/run-routine.sh must not run git $forbidden_routine_git"
