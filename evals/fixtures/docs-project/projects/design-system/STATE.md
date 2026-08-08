@@ -34,6 +34,7 @@ updated_at: 2026-08-04
 
 - 定性的判断と測定可能な評価軸は同じファイルへ混ぜない（2026-07-30）。
 - 現在判断ではactiveなKnowledgeとSkillを優先する。
+- Project差分は`AGENTS.md#Project Notes`、契約本体は`PROJECT.md#design-system`を参照する。
 
 ## 失敗・却下済み
 

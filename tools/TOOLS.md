@@ -24,9 +24,11 @@ Markdown、原資料、Project入出力、eval、Toolコードが正本である
 ## 相互参照
 
 恒久参照は`<repository-relative-path>#<target>`を使い、行番号を使わない。targetは見出し、
-frontmatter key、または`**<target>**`形式の定義項目（`PC-01`等）とする。同じProject内でも
-対象ファイル名を省略しない。instance文書（`PROJECT.md`、`STATE.md`等）への総称参照だけは、
-pathをsourceファイルのディレクトリ基準で解決してよい。validatorが参照の解決を静的検査する。
+frontmatter key、または`**<target>**`形式の定義項目（`PC-01`等）とする。見出しtargetは表示文字列の
+完全一致に加え、inline backtickを除いた文字列、またはASCII英字の小文字化・空白の`-`化・inline
+backtick除去によるslugを使える。同じProject内でも対象ファイル名を省略しない。instance文書
+（`PROJECT.md`、`STATE.md`等）へのslashなし参照は、sourceファイルの兄弟をrepository rootより先に
+解決する。validatorが参照の解決を静的検査する。
 
 ## 一時作業と固定化
 
