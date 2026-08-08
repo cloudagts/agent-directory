@@ -1,7 +1,7 @@
 # BACKUP.md — 遠隔バックアップと復旧
 
 backup trigger、remote分類、失敗、divergence、復旧、マシン移行、監査を扱うときに読む。通常作業では
-読まず、設定済み自動backupの実行だけなら`tools/TOOLS.md#backup-to-github.sh`で足りる。
+読まず、設定済み自動backupの実行だけなら`tools/REFERENCE.md#backup-to-github.sh`で足りる。
 
 ## 目的と非ゴール
 

@@ -80,26 +80,45 @@ if [[ -n "$search_terms" ]]; then
   printf '%s\n' "$search_terms" >"$content_file"
 else
   # 上流revisionの解決順序はtools/UPSTREAM.md#上流revisionの解決が所有する:
-  # merge-base（clone追従） → 採用時宣言のgit config（3-way port追従） → unknown（reason付き）。
-  # merge-base以外はresolved-fromを併記し、「採用済み」と「remoteの現在」を混同しない。
-  merge_base=''
+  # 検証済みの採用宣言（git config） → merge-base（clone追従の診断値） → unknown（reason付き）。
+  # 宣言値は「採用した」事実、merge-baseは「分岐した」事実であり、後者は採用の進行を追わない。
+  # 常にresolved-fromを併記し、実在確認できない宣言値を公開しない。
   has_template_remote=false
+  template_ref_present=false
+  merge_base=''
   if git -C "$repo_root" remote get-url template >/dev/null 2>&1; then
     has_template_remote=true
-    merge_base="$(git -C "$repo_root" merge-base HEAD refs/remotes/template/main 2>/dev/null || true)"
+    if git -C "$repo_root" rev-parse --verify --quiet refs/remotes/template/main >/dev/null 2>&1; then
+      template_ref_present=true
+      merge_base="$(git -C "$repo_root" merge-base HEAD refs/remotes/template/main 2>/dev/null || true)"
+    fi
   fi
   declared_revision="$(git -C "$repo_root" config agent-directory.upstream-revision 2>/dev/null || true)"
-  if [[ -n "$declared_revision" ]] && ! [[ "$declared_revision" =~ ^[0-9a-f]{7,40}$ ]]; then
-    note 'git config agent-directory.upstream-revision is not a revision sha; ignoring it'
-    declared_revision=''
+  declared_verified=''
+  if [[ -n "$declared_revision" ]]; then
+    if ! [[ "$declared_revision" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+      note 'git config agent-directory.upstream-revision is not a revision sha; ignoring it'
+    elif git -C "$repo_root" cat-file -e "$declared_revision^{commit}" 2>/dev/null; then
+      # git rev-parseが受け付ける表記（大文字・short sha）は正規化して採用する。
+      declared_verified="$(git -C "$repo_root" rev-parse --verify "$declared_revision^{commit}" 2>/dev/null || true)"
+    else
+      note 'git config agent-directory.upstream-revision does not exist in this clone; not publishing an unverifiable sha'
+      note 'to make the declaration verifiable, add the read-only template remote and run git fetch template (tools/BACKUP.md#remoteの分類)'
+    fi
   fi
-  if [[ -n "$merge_base" ]]; then
-    upstream_sha="$merge_base"
-  elif [[ -n "$declared_revision" ]]; then
-    upstream_sha="$declared_revision (resolved-from: declared)"
+  if [[ -n "$declared_verified" ]]; then
+    upstream_sha="$declared_verified (resolved-from: declared)"
+    if [[ -n "$merge_base" && "$declared_verified" != "$merge_base" ]]; then
+      note 'the declared adoption differs from the merge-base ancestor (expected while porting ahead); if the declaration is stale, update or unset git config agent-directory.upstream-revision'
+    fi
+  elif [[ -n "$merge_base" ]]; then
+    upstream_sha="$merge_base (resolved-from: merge-base)"
+  elif [[ "$has_template_remote" == true && "$template_ref_present" == false ]]; then
+    upstream_sha='unknown (template-not-fetched)'
+    note 'template remote is declared but refs/remotes/template/main is absent; run git fetch template, or declare the adopted revision once with: git config agent-directory.upstream-revision <sha>'
   elif [[ "$has_template_remote" == true ]]; then
     upstream_sha='unknown (unrelated-history)'
-    note 'template remote is reachable but shares no history (3-way port adoption); declare the adopted revision once with: git config agent-directory.upstream-revision <sha>'
+    note 'template remote is fetched but shares no history (3-way port adoption); declare the adopted revision once with: git config agent-directory.upstream-revision <sha>'
   else
     upstream_sha='unknown (no-template-remote)'
   fi
@@ -162,7 +181,7 @@ check_pattern() {
 # agent-nameの検査が1件も実行されないまま送信・dry-run成功を成立させない（fail-closed）。
 self_definition_section="$(awk '
   /^#+[[:space:]]*自己定義[[:space:]]*$/ { in_section = 1; match($0, /^#+/); depth = RLENGTH; next }
-  in_section && /^#+[[:space:]]/ { match($0, /^#+/); if (RLENGTH <= depth) exit }
+  in_section && /^#/ { match($0, /^#+/); if (RLENGTH <= depth) exit }
   in_section' "$repo_root/AGENTS.md")"
 if [[ -z "$self_definition_section" ]]; then
   blocked anonymization-source-unparsed \
@@ -182,8 +201,8 @@ while IFS= read -r self_definition_term; do
 done <<<"$self_definition_terms"
 if [[ "$checked_agent_name_terms" -eq 0 ]]; then
   blocked anonymization-source-unparsed \
-    'every backticked token on the identity line is an unreplaced template placeholder; zero agent-name checks ran' \
-    'replace the identity-line placeholders with the real names (README.md 手順2), then retry'
+    'no identity-line backtick token survives the exclusions (template placeholders and generic terms); zero agent-name checks ran' \
+    'declare the real names in backticks on the identity line (README.md 手順2), then retry'
 fi
 check_derived_term workspace-name "${repo_root##*/}"
 check_derived_term os-user-name "${USER:-}"
@@ -257,15 +276,38 @@ if ! gh_ready; then
   exit 0
 fi
 
+# 重複処理（tools/UPSTREAM.md#送信フロー）: 正規化タイトルが完全一致するopen Issueがあれば
+# 同一問題と確定し、新規作成せず自動で--commentへ切り替える。曖昧な候補では停止せず新規作成する
+# （観測を一件も捨てず、人間確認待ちで報告経路を塞がない。重複の統合は上流側の責務）。
+normalize_issue_title() {
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E -e 's/^[[:space:]]*\[(bug|field|improvement)\][[:space:]]*//' \
+      -e 's/[[:space:]]+/ /g' -e 's/^ //' -e 's/ $//'
+}
 if [[ -z "$comment_issue" ]]; then
   candidates="$(gh issue list --repo "$upstream_repo" --state open --search "$title" \
-    --json number,title --jq '.[] | "#\(.number) \(.title)"' 2>/dev/null || true)"
+    --json number,title --jq '.[] | "\(.number)\t\(.title)"' 2>/dev/null || true)"
   if [[ -n "$candidates" ]]; then
-    note 'possibly duplicate open issues; if it is the same problem, retry with --comment <number> instead:'
-    while IFS= read -r line; do
-      [[ -n "$line" ]] || continue
-      note "  $line"
+    normalized_title="$(normalize_issue_title "$title")"
+    duplicate_number=''
+    while IFS=$'\t' read -r candidate_number candidate_title; do
+      [[ -n "$candidate_number" ]] || continue
+      if [[ -n "$normalized_title" && "$(normalize_issue_title "$candidate_title")" == "$normalized_title" ]]; then
+        duplicate_number="$candidate_number"
+        break
+      fi
     done <<<"$candidates"
+    if [[ -n "$duplicate_number" ]]; then
+      comment_issue="$duplicate_number"
+      note "an open issue with an identical normalized title exists; appending this observation as a comment on #$duplicate_number instead of creating a duplicate"
+    else
+      note 'possibly duplicate open issues; if it is the same problem, retry with --comment <number> instead:'
+      while IFS=$'\t' read -r candidate_number candidate_title; do
+        [[ -n "$candidate_number" ]] || continue
+        note "  #$candidate_number $candidate_title"
+      done <<<"$candidates"
+    fi
   fi
 fi
 

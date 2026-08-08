@@ -8,7 +8,7 @@ expect:
   must_read:
     - AGENTS.md
     - knowledge/KNOWLEDGE.md
-    - tools/TOOLS.md
+    - tools/REFERENCE.md
     - tools/append-knowledge-log.sh
   must_run:
     - tools/append-knowledge-log.sh --type lint --target fixture/1000 --summary "threshold fixture"

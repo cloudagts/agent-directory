@@ -230,7 +230,7 @@ push、root sessionからのIndependent remote操作、remote divergenceの自�
 ### Materializationとbackup境界
 
 健全なAgent Workspaceでは、statusにかかわらず全Independent repositoryがmaterialize済みである。
-materializerの動作は`tools/TOOLS.md#materialize-project-repositories.sh`が、backupのscope、
+materializerの動作は`tools/REFERENCE.md#materialize-project-repositories.sh`が、backupのscope、
 停止reason、監査項目、移行手順、rootでの`git clean`の禁止は`tools/BACKUP.md`が所有する。
 
 ### 昇格、移行、統合

@@ -149,7 +149,8 @@ tools/prepare-context.sh --route meta --target tools/TOOLS.md --class read
 明示パスと正本の明示参照を最優先とし、検索結果は候補として扱う。選択後に正本を読む。
 `.agent-cache/`は正本から再生成され、検索のstale回復はrouting catalogだけを一度作り直す。
 manifest（全体inventory）はMaintenanceとfull検証だけが再生成する。
-探索順位、fallback、読込予算の詳細は[tools/TOOLS.md](tools/TOOLS.md)と[AGENTS.md](AGENTS.md)が所有する。
+探索順位と読込予算の原則は[tools/TOOLS.md](tools/TOOLS.md)と[AGENTS.md](AGENTS.md)が、
+固定Toolの呼び出し形・入出力・fallbackは[tools/REFERENCE.md](tools/REFERENCE.md)が所有する。
 
 ## 検証
 
@@ -280,7 +281,8 @@ triggerは検証済みcommitの後、破壊的変更前のcheckpoint、採用rev
 | [projects/LIFECYCLE.md](projects/LIFECYCLE.md) / [projects/RECOVERY.md](projects/RECOVERY.md) | 状態遷移と削除条件 / 目的不一致からの復旧 |
 | [routines/ROUTINES.md](routines/ROUTINES.md) | Routine Trigger層、Scheduler分離、送信境界、commit/backup条件 |
 | [evals/EVALS.md](evals/EVALS.md) | 振る舞いevalの契約、ケースschema、fixture、最低条件 |
-| [tools/TOOLS.md](tools/TOOLS.md) | Toolの入出力、自律commit、自己修復、サイズ超過、fallback、予算 |
+| [tools/TOOLS.md](tools/TOOLS.md) | task class、Tool登録、相互参照、自律commit、自己修復、サイズ予算 |
+| [tools/REFERENCE.md](tools/REFERENCE.md) | 固定Toolの呼び出し形、入出力、生成物、停止reason、fallback |
 | [tools/BACKUP.md](tools/BACKUP.md) | backup trigger、remote分類、失敗と復旧、divergence、Single Writer |
 | [tools/CONTROL.md](tools/CONTROL.md) | 境界執行の三層、policy tier、明示エスカレーション、違反分類と代謝、委譲境界、導入基準 |
 

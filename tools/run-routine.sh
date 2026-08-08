@@ -236,8 +236,14 @@ fi
 
 validator_args=()
 [[ "$run_full" != true ]] || validator_args+=(--full)
-# Add strict mode only for a deployed Agent (placeholders resolved). The skeleton is left as-is.
-if ! grep -Eq '<agent-name>|<agent-role>|<agent-mission>|<agent-vision>' "$repo_root/AGENTS.md"; then
+# Add strict mode only for a deployed Agent. The placeholder set and the deployment predicate
+# are owned by the validator (--bootstrap-status); a partially adopted tree stays non-strict
+# instead of locking Maintenance into a red run it cannot repair itself.
+bootstrap_status_line="$(bash "$repo_root/tools/validate-agent-directory.sh" --bootstrap-status 2>/dev/null || true)"
+if [[ -z "$bootstrap_status_line" ]]; then
+  # 照会失敗と未配備を区別して残す。fail-open側だが、直後の本検証runが同じvalidatorで赤くなる。
+  log 'bootstrap status query failed; treating the tree as not deployed (no --strict)'
+elif [[ "$bootstrap_status_line" == 'BOOTSTRAP_STATUS status=deployed' ]]; then
   validator_args+=(--strict)
 fi
 
