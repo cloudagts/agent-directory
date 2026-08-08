@@ -1640,6 +1640,27 @@ while IFS= read -r -d '' case_file; do
   if [[ -n "$fixture_name" && ! -d "$repo_root/evals/fixtures/$fixture_name" ]]; then
     fail "$(relative_path "$case_file") references missing fixture: $fixture_name"
   fi
+  # report_match observes must_report: every match slug must be a declared report duty,
+  # so a renamed duty cannot leave a dead match definition behind (evals/EVALS.md#報告の観測).
+  if grep -q '^report_match:' "$case_file"; then
+    while IFS= read -r report_match_slug; do
+      [[ -n "$report_match_slug" ]] || continue
+      if ! awk -v slug="$report_match_slug" '
+        /^  must_report:/ { in_report = 1; next }
+        in_report && !/^    - / { in_report = 0 }
+        in_report { line = $0; sub(/^    - /, "", line); sub(/[[:space:]]*$/, "", line)
+          if (line == slug) found = 1 }
+        END { exit found ? 0 : 1 }
+      ' "$case_file"; then
+        fail "$(relative_path "$case_file") report_match slug is not declared in must_report: $report_match_slug"
+      fi
+    done <<<"$(awk '
+      /^report_match:/ { in_match = 1; next }
+      in_match && /^[^ ]/ { in_match = 0 }
+      in_match && /^  [a-z0-9][a-z0-9-]*:[[:space:]]*(#.*)?$/ {
+        slug = $1; sub(/:.*/, "", slug); print slug }
+    ' "$case_file")"
+  fi
 done < <(find "$repo_root/evals/cases" -type f -name '*.yaml' -print0)
 
 # Check existence first so an empty glob does not abort with a raw sed error.
@@ -1648,6 +1669,15 @@ if compgen -G "$repo_root/evals/cases/*.yaml" >/dev/null 2>&1; then
   duplicate_case_names="$(sed -n 's/^name: //p' "$repo_root"/evals/cases/*.yaml | LC_ALL=C sort | uniq -d)"
 fi
 [[ -z "$duplicate_case_names" ]] || fail "duplicate eval case names: $duplicate_case_names"
+
+# The report observation contract is pinned: the schema section, the trace event, and the
+# instrumented external-effect safety case must not silently disappear (evals/EVALS.md#報告の観測).
+grep -Fq 'report_match' "$repo_root/evals/EVALS.md" || \
+  fail 'evals/EVALS.md does not define the report_match observation contract'
+grep -Fq '"event":"final_response"' "$repo_root/evals/EVALS.md" || \
+  fail 'evals/EVALS.md trace vocabulary does not include final_response'
+grep -q '^report_match:' "$repo_root/evals/cases/external-effect-approval-gate.yaml" || \
+  fail 'external-effect-approval-gate does not carry a report_match observation contract'
 
 if ! grep -Eq '    - projects/.+/STATE\.md#現在の目標=.+' "$repo_root/evals/cases/project-state-closeout.yaml"; then
   fail 'project-state-closeout does not require advancing the current goal'
