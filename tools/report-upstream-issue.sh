@@ -8,7 +8,12 @@ tool_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd "${AGENT_DIRECTORY_ROOT:-$tool_root/..}" 2>/dev/null && pwd -P)" || repo_root=''
 cache_dir="${AGENT_CACHE_DIR:-$repo_root/.agent-cache}"
 draft_dir="$cache_dir/upstream-reports"
-# The destination is a contract (tools/UPSTREAM.md). No flag or environment variable may change it.
+# The destination allowlist is a contract (tools/UPSTREAM.md#宛先許可リスト): literal entries only.
+# --repo selects inside the allowlist; no flag or environment variable may extend it.
+upstream_repo_allowlist=(
+  'claudagt/agent-directory'
+  'claudagt/agent-sills'
+)
 upstream_repo='claudagt/agent-directory'
 
 title=''
@@ -20,8 +25,8 @@ violations=()
 checked_agent_name_terms=0
 
 usage() {
-  printf 'Usage: %s --title <title> --body-file <path> [--comment <issue-number>] [--dry-run]\n' "${0##*/}" >&2
-  printf '       %s --search "<terms>" [--dry-run]\n' "${0##*/}" >&2
+  printf 'Usage: %s --title <title> --body-file <path> [--repo <owner/repo>] [--comment <issue-number>] [--dry-run]\n' "${0##*/}" >&2
+  printf '       %s --search "<terms>" [--repo <owner/repo>] [--dry-run]\n' "${0##*/}" >&2
 }
 
 blocked() {
@@ -45,11 +50,26 @@ while [[ $# -gt 0 ]]; do
     --title) [[ $# -ge 2 ]] || { usage; blocked usage 'missing value for --title'; }; title="$2"; shift 2 ;;
     --body-file) [[ $# -ge 2 ]] || { usage; blocked usage 'missing value for --body-file'; }; body_file="$2"; shift 2 ;;
     --comment) [[ $# -ge 2 ]] || { usage; blocked usage 'missing value for --comment'; }; comment_issue="$2"; shift 2 ;;
+    --repo) [[ $# -ge 2 ]] || { usage; blocked usage 'missing value for --repo'; }; upstream_repo="$2"; shift 2 ;;
     --dry-run) dry_run=true; shift ;;
     --search) [[ $# -ge 2 ]] || { usage; blocked usage 'missing value for --search'; }; search_terms="$2"; shift 2 ;;
-    *) usage; blocked usage "unknown argument: $1 (destination and attachments are fixed by tools/UPSTREAM.md)" ;;
+    *) usage; blocked usage "unknown argument: $1 (destinations and attachments are fixed by tools/UPSTREAM.md)" ;;
   esac
 done
+
+# --repo selects inside the fixed allowlist; anything else is rejected (fail-closed).
+destination_allowed=false
+for allowed_repo in "${upstream_repo_allowlist[@]}"; do
+  if [[ "$upstream_repo" == "$allowed_repo" ]]; then
+    destination_allowed=true
+    break
+  fi
+done
+if [[ "$destination_allowed" != true ]]; then
+  blocked destination-not-allowed \
+    'the requested destination is outside the fixed allowlist (tools/UPSTREAM.md#宛先許可リスト)' \
+    'extending the allowlist is a 方針・契約 exception: revise tools/UPSTREAM.md with user approval first'
+fi
 
 [[ -n "$repo_root" && -f "$repo_root/AGENTS.md" ]] || blocked no-repo-root 'cannot resolve the workspace root'
 
@@ -79,48 +99,57 @@ trap 'rm -f "$content_file" "$send_body"' EXIT
 if [[ -n "$search_terms" ]]; then
   printf '%s\n' "$search_terms" >"$content_file"
 else
-  # 上流revisionの解決順序はtools/UPSTREAM.md#上流revisionの解決が所有する:
-  # 検証済みの採用宣言（git config） → merge-base（clone追従の診断値） → unknown（reason付き）。
-  # 宣言値は「採用した」事実、merge-baseは「分岐した」事実であり、後者は採用の進行を追わない。
-  # 常にresolved-fromを併記し、実在確認できない宣言値を公開しない。
-  has_template_remote=false
-  template_ref_present=false
-  merge_base=''
-  if git -C "$repo_root" remote get-url template >/dev/null 2>&1; then
-    has_template_remote=true
-    if git -C "$repo_root" rev-parse --verify --quiet refs/remotes/template/main >/dev/null 2>&1; then
-      template_ref_present=true
-      merge_base="$(git -C "$repo_root" merge-base HEAD refs/remotes/template/main 2>/dev/null || true)"
+  if [[ "$upstream_repo" != 'claudagt/agent-directory' ]]; then
+    # 自動解決はagent-directory固有（tools/UPSTREAM.md#上流revisionの解決）。他の宛先では解決を
+    # 行わず、採用revisionは報告者が本文の## 対象へ記す（取り込み記録agents/upstream.yaml等）。
+    upstream_sha='unknown (no-auto-resolution-for-this-destination)'
+    if grep -Fq '<upstream-sha>' "$body_file"; then
+      note "revision auto-resolution is specific to claudagt/agent-directory; write the adopted revision of $upstream_repo into the body's 対象 section (e.g. the commit sha recorded by the import tool in agents/upstream.yaml)"
     fi
-  fi
-  declared_revision="$(git -C "$repo_root" config agent-directory.upstream-revision 2>/dev/null || true)"
-  declared_verified=''
-  if [[ -n "$declared_revision" ]]; then
-    if ! [[ "$declared_revision" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
-      note 'git config agent-directory.upstream-revision is not a revision sha; ignoring it'
-    elif git -C "$repo_root" cat-file -e "$declared_revision^{commit}" 2>/dev/null; then
-      # git rev-parseが受け付ける表記（大文字・short sha）は正規化して採用する。
-      declared_verified="$(git -C "$repo_root" rev-parse --verify "$declared_revision^{commit}" 2>/dev/null || true)"
-    else
-      note 'git config agent-directory.upstream-revision does not exist in this clone; not publishing an unverifiable sha'
-      note 'to make the declaration verifiable, add the read-only template remote and run git fetch template (tools/BACKUP.md#remoteの分類)'
-    fi
-  fi
-  if [[ -n "$declared_verified" ]]; then
-    upstream_sha="$declared_verified (resolved-from: declared)"
-    if [[ -n "$merge_base" && "$declared_verified" != "$merge_base" ]]; then
-      note 'the declared adoption differs from the merge-base ancestor (expected while porting ahead); if the declaration is stale, update or unset git config agent-directory.upstream-revision'
-    fi
-  elif [[ -n "$merge_base" ]]; then
-    upstream_sha="$merge_base (resolved-from: merge-base)"
-  elif [[ "$has_template_remote" == true && "$template_ref_present" == false ]]; then
-    upstream_sha='unknown (template-not-fetched)'
-    note 'template remote is declared but refs/remotes/template/main is absent; run git fetch template, or declare the adopted revision once with: git config agent-directory.upstream-revision <sha>'
-  elif [[ "$has_template_remote" == true ]]; then
-    upstream_sha='unknown (unrelated-history)'
-    note 'template remote is fetched but shares no history (3-way port adoption); declare the adopted revision once with: git config agent-directory.upstream-revision <sha>'
   else
-    upstream_sha='unknown (no-template-remote)'
+    # 上流revisionの解決順序はtools/UPSTREAM.md#上流revisionの解決が所有する:
+    # 検証済みの採用宣言（git config） → merge-base（clone追従の診断値） → unknown（reason付き）。
+    # 宣言値は「採用した」事実、merge-baseは「分岐した」事実であり、後者は採用の進行を追わない。
+    # 常にresolved-fromを併記し、実在確認できない宣言値を公開しない。
+    has_template_remote=false
+    template_ref_present=false
+    merge_base=''
+    if git -C "$repo_root" remote get-url template >/dev/null 2>&1; then
+      has_template_remote=true
+      if git -C "$repo_root" rev-parse --verify --quiet refs/remotes/template/main >/dev/null 2>&1; then
+        template_ref_present=true
+        merge_base="$(git -C "$repo_root" merge-base HEAD refs/remotes/template/main 2>/dev/null || true)"
+      fi
+    fi
+    declared_revision="$(git -C "$repo_root" config agent-directory.upstream-revision 2>/dev/null || true)"
+    declared_verified=''
+    if [[ -n "$declared_revision" ]]; then
+      if ! [[ "$declared_revision" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+        note 'git config agent-directory.upstream-revision is not a revision sha; ignoring it'
+      elif git -C "$repo_root" cat-file -e "$declared_revision^{commit}" 2>/dev/null; then
+        # git rev-parseが受け付ける表記（大文字・short sha）は正規化して採用する。
+        declared_verified="$(git -C "$repo_root" rev-parse --verify "$declared_revision^{commit}" 2>/dev/null || true)"
+      else
+        note 'git config agent-directory.upstream-revision does not exist in this clone; not publishing an unverifiable sha'
+        note 'to make the declaration verifiable, add the read-only template remote and run git fetch template (tools/BACKUP.md#remoteの分類)'
+      fi
+    fi
+    if [[ -n "$declared_verified" ]]; then
+      upstream_sha="$declared_verified (resolved-from: declared)"
+      if [[ -n "$merge_base" && "$declared_verified" != "$merge_base" ]]; then
+        note 'the declared adoption differs from the merge-base ancestor (expected while porting ahead); if the declaration is stale, update or unset git config agent-directory.upstream-revision'
+      fi
+    elif [[ -n "$merge_base" ]]; then
+      upstream_sha="$merge_base (resolved-from: merge-base)"
+    elif [[ "$has_template_remote" == true && "$template_ref_present" == false ]]; then
+      upstream_sha='unknown (template-not-fetched)'
+      note 'template remote is declared but refs/remotes/template/main is absent; run git fetch template, or declare the adopted revision once with: git config agent-directory.upstream-revision <sha>'
+    elif [[ "$has_template_remote" == true ]]; then
+      upstream_sha='unknown (unrelated-history)'
+      note 'template remote is fetched but shares no history (3-way port adoption); declare the adopted revision once with: git config agent-directory.upstream-revision <sha>'
+    else
+      upstream_sha='unknown (no-template-remote)'
+    fi
   fi
   sed "s/<upstream-sha>/$upstream_sha/g" "$body_file" >"$send_body"
   { printf '%s\n' "$title"; cat "$send_body"; } >"$content_file"
@@ -134,14 +163,27 @@ add_violation() {
   violations+=("$rule")
 }
 
+# 許可リストの公開上流の名称（owner/repoとrepo名）は公開情報であり、遮断語にしない。
+is_public_upstream_term() {
+  local candidate="$1" listed_repo
+  for listed_repo in "${upstream_repo_allowlist[@]}"; do
+    if [[ "$candidate" == "$listed_repo" || "$candidate" == "${listed_repo##*/}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 # The matched value itself is never printed: printing it would be the leak.
 # 自己定義で宣言された固有名は、長さ・文字体系・localeにかかわらず必ず検査する
 # （tools/UPSTREAM.md#公開禁止情報は長さによる免除を定めていない）。
 check_declared_term() {
   local rule="$1" term="$2"
   [[ -n "$term" ]] || return 0
+  if is_public_upstream_term "$term"; then
+    return 0
+  fi
   case "$term" in
-    'agent-directory') return 0 ;;
     '<'*'>') return 0 ;; # 未置換のtemplateプレースホルダー（<agent-name>等）は固有名ではない
   esac
   checked_agent_name_terms=$((checked_agent_name_terms + 1))
@@ -155,8 +197,10 @@ check_declared_term() {
 check_derived_term() {
   local rule="$1" term="$2" term_bytes
   [[ -n "$term" ]] || return 0
+  if is_public_upstream_term "$term"; then
+    return 0
+  fi
   case "$term" in
-    'agent-directory') return 0 ;;
     '<'*'>') return 0 ;;
   esac
   term_bytes="$(printf %s "$term" | wc -c | tr -d '[:space:]')"
@@ -211,9 +255,16 @@ check_derived_term git-user-name "$(git -C "$repo_root" config user.name 2>/dev/
 check_derived_term git-user-email "$(git -C "$repo_root" config user.email 2>/dev/null || true)"
 while IFS= read -r remote_url; do
   [[ -n "$remote_url" ]] || continue
-  case "$remote_url" in
-    *"$upstream_repo"*) continue ;;
-  esac
+  # 許可リスト内の公開上流を指すremoteは公開情報であり、遮断語にしない。
+  public_remote=false
+  for listed_repo in "${upstream_repo_allowlist[@]}"; do
+    case "$remote_url" in
+      *"$listed_repo"*) public_remote=true; break ;;
+    esac
+  done
+  if [[ "$public_remote" == true ]]; then
+    continue
+  fi
   check_derived_term git-remote-url "$remote_url"
 done < <(git -C "$repo_root" remote -v 2>/dev/null | awk '{print $2}' | LC_ALL=C sort -u)
 

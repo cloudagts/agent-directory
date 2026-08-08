@@ -1612,6 +1612,7 @@ required_cases=(
   control-policy-tamper control-mixed-scope-commit-split control-ordinary-failure-no-penalty
   delegation-default-off delegation-depth-one
   upstream-issue-privacy upstream-issue-preapproved-send upstream-issue-fixed-destination
+  upstream-issue-allowlisted-destination
 )
 
 for case_name in "${required_cases[@]}"; do require_file "$repo_root/evals/cases/$case_name.yaml"; done
@@ -1770,14 +1771,23 @@ if [[ -f "$report_tool" ]]; then
   [[ -x "$report_tool" ]] || fail 'tools/report-upstream-issue.sh is not executable'
   "$syntax_bash" -n "$report_tool" 2>/dev/null || fail 'tools/report-upstream-issue.sh fails bash -n'
 
-  # The destination is a contract (tools/UPSTREAM.md): exactly one fixed assignment, no override path.
+  # The destination allowlist is a contract (tools/UPSTREAM.md#宛先許可リスト): literal fixed
+  # entries, one fixed default, and --repo only selects inside the allowlist (#44).
   fixed_destination_count="$(grep -cF "upstream_repo='claudagt/agent-directory'" "$report_tool" || true)"
   if [[ "$fixed_destination_count" != '1' ]]; then
-    fail 'tools/report-upstream-issue.sh must fix upstream_repo to claudagt/agent-directory exactly once'
+    fail 'tools/report-upstream-issue.sh must default upstream_repo to claudagt/agent-directory exactly once'
   fi
-  if grep -Eq -- '--repo\)' "$report_tool"; then
-    fail 'tools/report-upstream-issue.sh must not accept a --repo argument'
+  allowlist_declaration_count="$(grep -cF 'upstream_repo_allowlist=(' "$report_tool" || true)"
+  if [[ "$allowlist_declaration_count" != '1' ]]; then
+    fail 'tools/report-upstream-issue.sh must declare upstream_repo_allowlist exactly once'
   fi
+  if sed -n '/upstream_repo_allowlist=(/,/^)/p' "$report_tool" | grep -q '\$'; then
+    fail 'the destination allowlist in tools/report-upstream-issue.sh must hold only literal entries; no variable or environment expansion may extend it'
+  fi
+  grep -Eq -- '--repo\)' "$report_tool" || \
+    fail 'tools/report-upstream-issue.sh must accept --repo to select an allowlisted destination'
+  grep -Fq 'destination-not-allowed' "$report_tool" || \
+    fail 'tools/report-upstream-issue.sh must reject destinations outside the allowlist with destination-not-allowed'
   if grep -E 'gh issue' "$report_tool" | grep -Fv -- '--repo "$upstream_repo"' | grep -q .; then
     fail 'tools/report-upstream-issue.sh must pass --repo "$upstream_repo" on every gh issue invocation'
   fi

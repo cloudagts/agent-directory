@@ -1,7 +1,7 @@
 # UPSTREAM.md — 上流Issue報告
 
-下流Workspaceがagent-directory由来の欠陥・汎用改善を、公開上流`claudagt/agent-directory`の
-GitHub Issueへ報告する契約の正本。送信経路は`tools/report-upstream-issue.sh`だけとし、
+下流Workspaceが上流由来の欠陥・汎用改善を、`#宛先許可リスト`内の公開上流のGitHub Issueへ
+報告する契約の正本。送信経路は`tools/report-upstream-issue.sh`だけとし、
 `gh`の直接操作でIssueを作成・コメントしない。
 
 ## 位置づけ
@@ -13,11 +13,25 @@ GitHub Issueへ報告する契約の正本。送信経路は`tools/report-upstre
 - GitHubを正本・実行基盤にしない原則は変わらない。本Toolは`tools/backup-to-github.sh`と並ぶ、
   宛先固定のGitHub書込Toolである。
 
+## 宛先許可リスト
+
+| repository | 位置づけ | revision自動解決 |
+|---|---|---|
+| `claudagt/agent-directory`（既定） | 本テンプレートの公開上流 | あり（`#上流revisionの解決`） |
+| `claudagt/agent-sills` | 共有Skillライブラリの配布元（`skills/SKILLS.md#共有Skillライブラリ`） | なし（報告者が本文`## 対象`へ記す） |
+
+- 宛先はこの許可リストへ固定する。`--repo`は許可リスト内の選択だけを行い、リスト外は
+  `destination-not-allowed`で拒否する。リストを広げる引数・環境変数を持たない。
+- 許可リストの変更は`AGENTS.md#人間へ上げる例外`の`方針・契約`であり、利用者の承認を経た
+  本正本の改定としてだけ行う。
+- 匿名化検査（`#公開禁止情報`）は宛先によらず同一に通す。許可リスト内の公開上流の名称は
+  公開情報であり遮断語にしない。
+
 ## 事前承認済み送信
 
 次の全条件を満たす送信だけを、実行前確認なしの事前承認済み外部操作とする。
 
-1. 宛先が`claudagt/agent-directory`のIssue（新規またはコメント）である。
+1. 宛先が`#宛先許可リスト`内のIssue（新規またはコメント）である。
 2. `tools/report-upstream-issue.sh`を経由する。
 3. 固有名・秘密情報の機械検査を通過している。
 4. 添付ファイルを持たない。
@@ -28,7 +42,7 @@ GitHub Issueへ報告する契約の正本。送信経路は`tools/report-upstre
 
 ## 上流問題の分類
 
-上流Issueにするのは「そのAgent固有ではなく、agent-directoryを使う別のAgentでも起こりうる問題」
+上流Issueにするのは「そのAgent固有ではなく、同じ上流を使う別のAgentでも起こりうる問題」
 だけとする。
 
 - 上流Issueにする: 正本規則の矛盾、標準Toolのバグ、validatorの誤検知・見逃し、正本・テンプレートが
@@ -79,10 +93,15 @@ OK: privateなdownstream Workspaceの通常Project作業中に発生した
 ## 修正候補（分かる場合のみ）
 ```
 
-`<upstream-sha>`はToolが`#上流revisionの解決`の順序で自動解決する。再現方法は固有情報を
-除いた最小手順だけを書く。
+宛先が`claudagt/agent-directory`のとき、`<upstream-sha>`はToolが`#上流revisionの解決`の
+順序で自動解決する。他の宛先では報告者が採用revision（取り込み記録`agents/upstream.yaml`の
+commit SHA等）へ置き換える。再現方法は固有情報を除いた最小手順だけを書く。
 
 ## 上流revisionの解決
+
+自動解決は宛先が`claudagt/agent-directory`のときだけ行う。他の宛先では解決せず、
+`<upstream-sha>`が残っていれば`unknown (no-auto-resolution-for-this-destination)`へ置換し、
+記入をDETAILで案内する。
 
 本文の`<upstream-sha>`は次の順で解決し、常にresolved-from・reasonを併記する。
 
@@ -117,11 +136,12 @@ OK: privateなdownstream Workspaceの通常Project作業中に発生した
 ## report-upstream-issue.sh
 
 ```bash
-bash tools/report-upstream-issue.sh --title "[bug] <問題>" --body-file <path> [--comment <issue番号>] [--dry-run]
-bash tools/report-upstream-issue.sh --search "<主要語>" [--dry-run]
+bash tools/report-upstream-issue.sh --title "[bug] <問題>" --body-file <path> [--repo <owner/repo>] [--comment <issue番号>] [--dry-run]
+bash tools/report-upstream-issue.sh --search "<主要語>" [--repo <owner/repo>] [--dry-run]
 ```
 
-- 宛先は`claudagt/agent-directory`へ固定し、変更する引数・環境変数を持たない。添付は
+- 宛先は`#宛先許可リスト`へ固定する。`--repo`はリスト内の選択だけを行い、リスト外は
+  `destination-not-allowed`で拒否する（既定は`claudagt/agent-directory`）。添付は
   受け付けない。`--dry-run`はネットワークへ書き込まない。
 - 検査条件はWorkspaceから実行時に導出する: `AGENTS.md#自己定義`の名乗り行（`- あなたは…`）の
   backtick表記**全件**（見出しの深さ・名称の個数に依存しない。宣言名は長さ・文字体系・locale
