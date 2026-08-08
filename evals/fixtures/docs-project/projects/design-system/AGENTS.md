@@ -21,3 +21,7 @@ Project固有の作業差分と条件付きDocs Routeだけを持つ。契約は
 ## 承認ゲート
 
 - カタログの外部公開は、利用者の明示指示があるまで行わない。
+
+## Project Notes
+
+- 兄弟instance文書への参照はProject root内で解決する。

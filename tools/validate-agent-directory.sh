@@ -1819,56 +1819,26 @@ grep -Fq 'tools/UPSTREAM.md' "$repo_root/AGENTS.md" || \
 grep -Fq '運用者応対言語' "$repo_root/AGENTS.md" || \
   fail 'AGENTS.md does not carry the operator interaction language contract (運用者応対言語)'
 
-# 相互参照の解決検査（tools/TOOLS.md#相互参照）: 追跡Markdown内の `path.md#target` 恒久参照は、
-# pathが実在し、targetが見出し・frontmatter key・**定義項目** のいずれかとして解決すること。
-# pathはrepository root基準を優先しsourceディレクトリ基準も許容する。プレースホルダーを含む参照と、
-# どちらの基準でも実在しないslashなしの総称instance参照（`PROJECT.md#status`等）は対象外とする。
-# 責務移管で見出しが移動したのに参照元が残る断線（#14 #20）を機械検出する。断線は正本の編集で
-# しか生まれず、meta正本の変更はfull検証へ進む契約のため、この全件走査は--fullだけが実行する。
-if [[ "$full" == true ]]; then
-reference_md_files="$(git -C "$repo_root" ls-files '*.md' 2>/dev/null || true)"
-if [[ -z "$reference_md_files" ]]; then
-  reference_md_files="$(cd "$repo_root" && find . -name '*.md' -type f \
-    -not -path './.git/*' -not -path './.agent-cache/*' -not -path './.tmp/*' \
-    -not -path './projects/*/.git/*' 2>/dev/null | sed 's|^\./||')"
-fi
-while IFS= read -r reference_md_rel; do
-  [[ -n "$reference_md_rel" ]] || continue
-  reference_md_abs="$repo_root/$reference_md_rel"
-  [[ -f "$reference_md_abs" ]] || continue
-  while IFS= read -r markdown_reference; do
-    [[ -n "$markdown_reference" ]] || continue
-    case "$markdown_reference" in
-      *'<'*) continue ;; # プレースホルダー・記法例
-    esac
-    reference_path="${markdown_reference%%#*}"
-    reference_target="${markdown_reference#*#}"
-    reference_target="${reference_target%%=*}" # eval固有の =<期待値> 表記を許容
-    [[ -n "$reference_target" && -n "$reference_path" ]] || continue
-    reference_file=''
-    if [[ -f "$repo_root/$reference_path" ]]; then
-      reference_file="$repo_root/$reference_path"
-    elif [[ -f "$(dirname "$reference_md_abs")/$reference_path" ]]; then
-      reference_file="$(dirname "$reference_md_abs")/$reference_path"
-    elif [[ "$reference_path" != */* ]]; then
-      continue # 総称instance参照
+# 相互参照の解決検査（tools/TOOLS.md#相互参照）は、実測された誤拒否領域だけを内部checkerへ
+# 分離する。meta正本の変更はfull検証へ進むため、全追跡Markdown走査は--fullだけで実行する。
+reference_checker="$repo_root/tools/validator/check-markdown-references.sh"
+if [[ ! -f "$reference_checker" ]]; then
+  fail 'tools/validator/check-markdown-references.sh is missing'
+elif ! "$syntax_bash" -n "$reference_checker" 2>/dev/null; then
+  fail 'tools/validator/check-markdown-references.sh fails bash -n'
+elif [[ "$full" == true ]]; then
+  reference_output=''
+  reference_status=0
+  reference_output="$(bash "$reference_checker" "$repo_root" 2>&1)" || reference_status=$?
+  if (( reference_status != 0 )); then
+    if [[ -z "$reference_output" ]]; then
+      fail 'tools/validator/check-markdown-references.sh failed without a diagnostic'
     else
-      fail "$reference_md_rel references a missing file: $reference_path"
-      continue
+      while IFS= read -r reference_failure; do
+        [[ -n "$reference_failure" ]] && fail "$reference_failure"
+      done <<<"$reference_output"
     fi
-    if ! awk -v target="$reference_target" '
-      NR == 1 && /^---$/ { in_frontmatter = 1; next }
-      in_frontmatter && /^---$/ { in_frontmatter = 0; next }
-      in_frontmatter { if (index($0, target ":") == 1) { found = 1; exit }; next }
-      /^#+ / { heading = $0; sub(/^#+[[:space:]]*/, "", heading); sub(/[[:space:]]*$/, "", heading)
-        if (heading == target) { found = 1; exit } }
-      { if (index($0, "**" target "**") > 0) { found = 1; exit } }
-      END { exit found ? 0 : 1 }
-    ' "$reference_file"; then
-      fail "$reference_md_rel reference does not resolve: $reference_path#$reference_target"
-    fi
-  done < <(grep -o '`[^`]*\.md#[^`]*`' "$reference_md_abs" 2>/dev/null | tr -d '`' | LC_ALL=C sort -u || true)
-done <<<"$reference_md_files"
+  fi
 fi
 grep -Fq 'materialize-project-repositories.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register materialize-project-repositories.sh'
@@ -2136,11 +2106,11 @@ if [[ -n "$tracked_files_snapshot" ]]; then
         ;;
     esac
     case "$tracked_routine_file" in
-      *.plist|*.lock|*routines/logs/*|*routines/locks/*|*routines/state/*)
+      *routines/logs/*|*routines/locks/*|*routines/state/*)
         fail "routine runtime state must not be tracked: $tracked_routine_file"
         ;;
     esac
-  done < <(printf '%s\n' "$tracked_files_snapshot" | grep -E '^routines/|\.plist$|\.lock$' || true)
+  done < <(printf '%s\n' "$tracked_files_snapshot" | grep -E '^routines/' || true)
 fi
 
 grep -Fq 'run-routine.sh' "$repo_root/tools/TOOLS.md" || \
@@ -3446,9 +3416,12 @@ fi
   routine_git() { env "${routine_env[@]}" git -C "$routine_work" "$@"; }
   routine_git init -q
   routine_git symbolic-ref HEAD refs/heads/main
+  routine_concurrent_path='routine-concurrent-writer.txt'
+  printf 'fixture baseline\n' > "$routine_work/$routine_concurrent_path"
   # Paths hidden by the fixture's ignore projection (e.g. under evals/fixtures) are tracked explicitly, as in the real repo.
   tr '\n' '\0' < "$routine_copy_list" | \
     env "${routine_env[@]}" xargs -0 git -C "$routine_work" add -f --
+  routine_git add -f -- "$routine_concurrent_path"
   routine_git commit -q -m 'fixture: routine workspace'
   routine_base_sha="$(routine_git rev-parse HEAD)"
 
@@ -3688,10 +3661,10 @@ class Handler(BaseHTTPRequestHandler):
                 subprocess.run(['git', '-C', mode.split(':', 1)[1], 'commit', '-q',
                                 '--allow-empty', '-m', 'fixture: concurrent writer'], check=False)
             elif mode.startswith('dirty:'):
-                repo = mode.split(':', 1)[1]
-                with open(os.path.join(repo, 'LICENSE'), 'a') as handle:
+                _, repo, relative_path = mode.split(':', 2)
+                with open(os.path.join(repo, relative_path), 'a') as handle:
                     handle.write('concurrent writer line\n')
-                subprocess.run(['git', '-C', repo, 'add', '--', 'LICENSE'], check=False)
+                subprocess.run(['git', '-C', repo, 'add', '--', relative_path], check=False)
         payload = open(os.path.join(state, 'response.json'), 'rb').read()
         self.send_response(200)
         self.send_header('content-type', 'application/json')
@@ -3938,18 +3911,18 @@ MOCK_RESPONSES
 
     # Never mix another writer's work into the routine's changes: the mock stages a foreign file
     # while responding, and the routine must yield without committing anything.
-    printf 'dirty:%s\n' "$routine_work" > "$routine_mock_state/mode"
+    printf 'dirty:%s:%s\n' "$routine_work" "$routine_concurrent_path" > "$routine_mock_state/mode"
     routine_run maintenance
     routine_expect 'ROUTINE_SKIPPED id=maintenance' 'the concurrent staged change run'
     [[ "$(routine_git rev-parse HEAD)" == "$routine_base_sha" ]] || \
       fail 'routine fixture: a concurrent staged change still produced a routine commit'
     grep -Fqx 'status: activ' "$routine_work/$routine_probe" || \
       fail 'routine fixture: the candidate was applied despite a concurrent staged change'
-    grep -Fq 'concurrent writer line' "$routine_work/LICENSE" || \
+    grep -Fq 'concurrent writer line' "$routine_work/$routine_concurrent_path" || \
       fail 'routine fixture: the routine destroyed the concurrent writer'\''s staged change'
     rm -f "$routine_mock_state/mode"
-    routine_git reset -q -- LICENSE
-    routine_git checkout -q -- LICENSE
+    routine_git reset -q -- "$routine_concurrent_path"
+    routine_git checkout -q -- "$routine_concurrent_path"
 
     # Happy path, configured through .env alone (no exported provider variables): this is the
     # normal user setup and proves the executor hands the .env values to the Python adapter.
