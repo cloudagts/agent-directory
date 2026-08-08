@@ -109,21 +109,27 @@ OK: privateなdownstream Workspaceの通常Project作業中に発生した
 
 ```bash
 bash tools/report-upstream-issue.sh --title "[bug] <問題>" --body-file <path> [--comment <issue番号>] [--dry-run]
-bash tools/report-upstream-issue.sh --search "<主要語>"
+bash tools/report-upstream-issue.sh --search "<主要語>" [--dry-run]
 ```
 
 - 宛先は`claudagt/agent-directory`へ固定し、変更する引数・環境変数を持たない。添付は
   受け付けない。`--dry-run`はネットワークへ書き込まない。
-- 検査条件はWorkspaceから実行時に導出する: `AGENTS.md#自己定義`のbacktick表記**全件**
-  （記法・名称の個数に依存しない）、Git rootディレクトリ名、remote URL、OSユーザー名・HOME、
-  `git config`のname・email、および秘密情報token・絶対パス・署名フッターのパターン。
-- 自己定義からbacktick表記を1件も抽出できないときは`UPSTREAM_REPORT_BLOCKED
+- 検査条件はWorkspaceから実行時に導出する: `AGENTS.md#自己定義`の名乗り行（`- あなたは…`）の
+  backtick表記**全件**（見出しの深さ・名称の個数に依存しない。宣言名は長さ・文字体系・locale
+  によらず検査し、応対言語など固有名でない契約値は遮断語にしない）、Git rootディレクトリ名、
+  remote URL、OSユーザー名・HOME、`git config`のname・email、および秘密情報token・絶対パス・
+  署名フッターのパターン。環境から推測した語だけは誤遮断回避のため3byte未満を飛ばし、
+  飛ばした事実をDETAILへ残す。
+- report本文と`--search`の検索語は同じ検査を通る。検査を迂回する送信モードを持たない。
+- agent-nameの検査が1件も実行できないときは`UPSTREAM_REPORT_BLOCKED
   reason=anonymization-source-unparsed`で停止する（無検査のまま送信・dry-run成功にしない）。
-  解除は検査を弱めることではなく、自己定義の各固有名をbacktickで囲むことで行う。
+  DETAILは「自己定義の見出しが見つからない」「名乗り行にbacktickがない」「全部が未置換
+  プレースホルダー」を区別する。解除は検査を弱めることではなく、名乗り行の各固有名を
+  backtickで囲むことで行う。
 - 出力（stdout最終1行）: `UPSTREAM_REPORT_OK issue=<url>` / `UPSTREAM_REPORT_COMMENTED issue=<url>` /
   `UPSTREAM_REPORT_DRY_RUN_OK` / `UPSTREAM_REPORT_DRAFTED reason=<reason> path=<path>` /
-  `UPSTREAM_REPORT_SEARCH_OK count=<n>`。停止は`UPSTREAM_REPORT_BLOCKED reason=<reason>`を
-  stderrへ出し非0で終了する。
+  `UPSTREAM_REPORT_SEARCH_OK count=<n>` / `UPSTREAM_REPORT_SEARCH_DRY_RUN_OK`。
+  停止は`UPSTREAM_REPORT_BLOCKED reason=<reason>`をstderrへ出し非0で終了する。
 - 検査違反のDETAILは規則名だけを出し、一致した値そのものを出力しない。
 
 ## セキュリティ問題
