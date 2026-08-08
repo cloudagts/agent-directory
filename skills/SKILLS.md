@@ -4,6 +4,20 @@ Skill Routeを確定した後に読む。Knowledgeは「何が分かっている
 Projectは「何を作り残すか」を所有する。再利用可能な研究方法そのものを手順として作る依頼はこのRouteであり、
 具体的な研究活動と研究中の仮説はProjectが所有する。
 
+## 共有Skillライブラリ
+
+Agent間で再利用する汎用Skillは、別リポジトリの [`agent-sills`](https://github.com/claudagt/agent-sills) が配布元です。
+このWorkspaceへSkillを標準で自動導入・自動同期はしません。必要なタスクで利用者が明示したときだけ、配布元のimport toolで
+`skills/<skill-name>/`をコピーし、取り込んだSkillをこのWorkspaceの正本にします。
+
+```bash
+bash /path/to/agent-sills/tools/import-skill.sh <skill-name> \
+  --target /path/to/agent-directory
+```
+
+インポート先には `skills/<skill-name>/agents/upstream.yaml` が作られ、配布元repository、commit SHA、Skill version、
+インポート時刻を記録します。既存Skillは上書きせず、更新時は上流との差分を確認してから明示的に再インポートします。
+
 ## 対象の選択
 
 1. 利用者がSkill名または`SKILL.md`のパスを明示したらそれを優先する。
