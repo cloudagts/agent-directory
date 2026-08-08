@@ -84,20 +84,27 @@ OK: privateなdownstream Workspaceの通常Project作業中に発生した
 
 ## 上流revisionの解決
 
-本文の`<upstream-sha>`は次の順で解決し、merge-base以外はresolved-from・reasonを併記する。
+本文の`<upstream-sha>`は次の順で解決し、常にresolved-from・reasonを併記する。
 
-1. `template` remote（`tools/BACKUP.md`の読み取り用remote）とのmerge-base — clone追従。
-2. 採用時に一度だけ宣言する`git config agent-directory.upstream-revision <sha>` —
-   上流と履歴を共有しない3-way port追従用。remoteの現在tipへはfallbackしない
-   （「採用済みrevision」と「remoteの現在」を混同するため）。
-3. `unknown (no-template-remote)` / `unknown (unrelated-history)` — 両者を区別して残し、
-   後者では宣言方法をDETAILで案内する。
+1. 採用時に一度だけ宣言する`git config agent-directory.upstream-revision <sha>` —
+   下流が実際に採用した上流revision。`git rev-parse`が受け付ける表記（大文字・short sha）は
+   実在commitへ正規化して採用し、実在確認できない宣言値は公開せずDETAILで通知する。
+   remoteの現在tipへはfallbackしない（「採用済みrevision」と「remoteの現在」を混同するため）。
+2. `template` remote（`tools/BACKUP.md`の読み取り用remote）とのmerge-base — clone追従の
+   診断値。merge-baseは「分岐した」事実であり、port追従では採用の進行を追わないため、
+   検証済み宣言があれば宣言を優先する。
+3. `unknown (no-template-remote)` / `unknown (template-not-fetched)` /
+   `unknown (unrelated-history)` — 三者を区別して残す。未fetchのremoteは履歴非共有と
+   混同せず`git fetch template`を案内し、履歴非共有では宣言方法をDETAILで案内する。
 
 ## 送信フロー
 
 1. 上流問題か個別問題かを分類する。個別問題は報告しない。
 2. `--search`で既存open Issueを確認し、同一問題なら新規作成せず`--comment <番号>`で
    匿名化した観測（upstream revision、occurrence、reproducibility）を追記する。
+   送信時にもToolが機械判定する: 正規化タイトルが完全一致するopen Issueがあれば同一問題と
+   確定し、自動で既存Issueへのコメントに切り替える。曖昧な候補は停止理由にせず、候補を
+   DETAILへ列挙して新規Issueを作成する（観測を捨てない。重複の統合は上流側の責務）。
 3. 本文を作成して送信する。検査で止まったら（`UPSTREAM_REPORT_BLOCKED`）、退避された下書きを
    抽象化して同じToolで再試行する。
 4. `gh`が無い・未認証の環境では下書き保存だけで停止する（`UPSTREAM_REPORT_DRAFTED`）。

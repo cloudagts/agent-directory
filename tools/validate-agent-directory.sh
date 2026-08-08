@@ -1790,6 +1790,13 @@ if [[ -f "$report_tool" ]]; then
   # Anonymization is fail-closed: an unparseable self-definition must block, never skip the rule.
   grep -Fq 'anonymization-source-unparsed' "$report_tool" || \
     fail 'tools/report-upstream-issue.sh must fail closed when no agent name is extractable from AGENTS.md#自己定義'
+  # Duplicate handling never blocks a report: an identical normalized title auto-comments on
+  # the existing issue, ambiguous candidates are listed and the new issue is still created.
+  grep -Fq 'normalize_issue_title' "$report_tool" || \
+    fail 'tools/report-upstream-issue.sh must normalize titles to auto-comment on an identical open issue'
+  if grep -Fq 'possible-duplicate' "$report_tool"; then
+    fail 'tools/report-upstream-issue.sh must not stop on duplicate candidates; observations are never dropped'
+  fi
 fi
 
 grep -Fq 'tools/backup-to-github.sh' "$repo_root/README.md" || \
@@ -2468,18 +2475,71 @@ if (( upstream_probe_status != 0 )) || \
   ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'UPSTREAM_REPORT_SEARCH_DRY_RUN_OK'; then
   fail 'report-upstream-issue.sh --search must support --dry-run for clean terms'
 fi
+# Upstream revision resolution: a verified declared adoption wins over merge-base, an
+# unverifiable declared sha is never published, an unfetched template remote is not
+# misdiagnosed as unrelated history, and every resolution carries resolved-from.
 {
   printf '%s\n' '# AGENTS.md — fixture' '' '## 自己定義' '' \
     '- あなたは`fixture-probe-agent`（役割:`検査fixture`）。' '' '## 共通判断原則'
 } > "$upstream_fixture_dir/AGENTS.md"
-env -i PATH="$PATH" HOME="$upstream_fixture_dir" GIT_CONFIG_NOSYSTEM=1 \
-  git -C "$upstream_fixture_dir" init -q
-env -i PATH="$PATH" HOME="$upstream_fixture_dir" GIT_CONFIG_NOSYSTEM=1 \
-  git -C "$upstream_fixture_dir" config agent-directory.upstream-revision 0123456789abcdef0123456789abcdef01234567
+upstream_fixture_git() {
+  env -i PATH="$PATH" HOME="$upstream_fixture_dir" GIT_CONFIG_NOSYSTEM=1 \
+    git -C "$upstream_fixture_dir" "$@"
+}
+upstream_fixture_git init -q
+upstream_fixture_git -c user.name=fixture -c user.email=fixture@example.invalid \
+  commit -q --allow-empty -m 'fixture adoption commit'
+upstream_fixture_sha="$(upstream_fixture_git rev-parse HEAD)"
+upstream_fixture_sha_upper="$(printf '%s' "$upstream_fixture_sha" | tr '[:lower:]' '[:upper:]')"
+# 1. A declared sha that git accepts (uppercase form) is verified and normalized.
+upstream_fixture_git config agent-directory.upstream-revision "$upstream_fixture_sha_upper"
 upstream_probe "$upstream_fixture_dir/body-clean.md"
 if (( upstream_probe_status != 0 )) || \
-  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'resolved-from: declared'; then
-  fail 'report-upstream-issue.sh must resolve the upstream revision from the declared adoption when merge-base cannot'
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq "$upstream_fixture_sha (resolved-from: declared)"; then
+  fail 'report-upstream-issue.sh must verify and normalize a declared adoption revision (uppercase sha included)'
+fi
+# 2. A declared sha that resolves to no commit is never published.
+upstream_fixture_git config agent-directory.upstream-revision deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  printf '%s\n' "$upstream_probe_output" | grep -Fq 'resolved-from: declared' || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'unknown (no-template-remote)'; then
+  fail 'report-upstream-issue.sh must not publish an unverifiable declared revision'
+fi
+# 3. An unfetched template remote is template-not-fetched, not unrelated-history.
+upstream_fixture_git remote add template /nonexistent-template-remote.git
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'unknown (template-not-fetched)' || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'git fetch template'; then
+  fail 'report-upstream-issue.sh must diagnose an unfetched template remote as template-not-fetched'
+fi
+# 4. A fetched ref that shares no history is unrelated-history.
+upstream_fixture_git config --unset agent-directory.upstream-revision
+upstream_fixture_orphan="$(upstream_fixture_git mktree </dev/null)"
+upstream_fixture_orphan="$(upstream_fixture_git -c user.name=fixture -c user.email=fixture@example.invalid \
+  commit-tree "$upstream_fixture_orphan" -m 'unrelated root' </dev/null)"
+upstream_fixture_git update-ref refs/remotes/template/main "$upstream_fixture_orphan"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq 'unknown (unrelated-history)'; then
+  fail 'report-upstream-issue.sh must diagnose a fetched ref sharing no history as unrelated-history'
+fi
+# 5. merge-base is a labeled diagnostic, and a verified declaration wins over it.
+upstream_fixture_git update-ref refs/remotes/template/main "$upstream_fixture_sha"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq "$upstream_fixture_sha (resolved-from: merge-base)"; then
+  fail 'report-upstream-issue.sh must label a merge-base resolution with resolved-from: merge-base'
+fi
+upstream_fixture_git -c user.name=fixture -c user.email=fixture@example.invalid \
+  commit -q --allow-empty -m 'fixture ported upstream change'
+upstream_fixture_adopted="$(upstream_fixture_git rev-parse HEAD)"
+upstream_fixture_git config agent-directory.upstream-revision "$upstream_fixture_adopted"
+upstream_probe "$upstream_fixture_dir/body-clean.md"
+if (( upstream_probe_status != 0 )) || \
+  ! printf '%s\n' "$upstream_probe_output" | grep -Fq "$upstream_fixture_adopted (resolved-from: declared)"; then
+  fail 'report-upstream-issue.sh must prefer a verified declared adoption over the merge-base ancestor'
 fi
 
 # A canon file lacking frontmatter must not stop cache generation; warn naming the target and drop it from the candidates.
