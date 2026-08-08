@@ -23,8 +23,10 @@ Markdown、原資料、Project入出力、eval、Toolコードが正本である
 
 ## 相互参照
 
-恒久参照は`<repository-relative-path>#<target>`（見出しまたはfrontmatter key）を使い、
-行番号を使わない。同じProject内でも対象ファイル名を省略しない。
+恒久参照は`<repository-relative-path>#<target>`を使い、行番号を使わない。targetは見出し、
+frontmatter key、または`**<target>**`形式の定義項目（`PC-01`等）とする。同じProject内でも
+対象ファイル名を省略しない。instance文書（`PROJECT.md`、`STATE.md`等）への総称参照だけは、
+pathをsourceファイルのディレクトリ基準で解決してよい。validatorが参照の解決を静的検査する。
 
 ## 一時作業と固定化
 
@@ -104,12 +106,12 @@ Tool呼び出しへまとめ、成功時出力は短く保つ。現在目標、�
 | `prepare-context.sh` | Context Packetとclass→profile写像 | `tools/REFERENCE.md` |
 | `finalize-task.sh` | work/state専用の決定的終端（検証・commit・backup） | `tools/REFERENCE.md` |
 | `append-knowledge-log.sh` | LOG追記とローテーション | `tools/REFERENCE.md` |
-| `backup-to-github.sh` | root backup remoteへpushする唯一の標準経路 | `tools/BACKUP.md` |
+| `backup-to-github.sh` | root backup remoteへpushする唯一の標準経路 | `tools/REFERENCE.md` |
 | `report-upstream-issue.sh` | 上流Issue送信の唯一の経路（宛先固定・添付なし） | `tools/UPSTREAM.md` |
 | `materialize-project-repositories.sh` | registryからclone再現（復旧・移行・partial解消） | `tools/REFERENCE.md` |
-| `run-routine.sh` | Scheduler起点のRoutine Executor | `routines/ROUTINES.md` |
+| `run-routine.sh` | Scheduler起点のRoutine Executor | `tools/REFERENCE.md` |
 | `manage-routine-schedule.sh` | user crontab / LaunchAgentのSchedule管理 | `tools/REFERENCE.md` |
-| `routine-reasoner.py` | 任意推論アダプター（provider・keyは`.env`） | `routines/ROUTINES.md` |
+| `routine-reasoner.py` | 任意推論アダプター（provider・keyは`.env`） | `tools/REFERENCE.md` |
 | `validate-agent-directory.sh` | 構造・境界・サイズの機械検査 | `tools/REFERENCE.md` |
 | `check-boundary.sh` / `install-git-hooks.sh` | commit・push境界検査とhook導入 | `tools/CONTROL.md` |
 

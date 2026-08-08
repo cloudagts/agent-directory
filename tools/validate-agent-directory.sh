@@ -1814,6 +1814,53 @@ grep -Fq 'tools/UPSTREAM.md' "$repo_root/AGENTS.md" || \
 # contracts: deleting the three lines must fail even outside --strict (#28).
 grep -Fq '運用者応対言語' "$repo_root/AGENTS.md" || \
   fail 'AGENTS.md does not carry the operator interaction language contract (運用者応対言語)'
+
+# 相互参照の解決検査（tools/TOOLS.md#相互参照）: 追跡Markdown内の `path.md#target` 恒久参照は、
+# pathが実在し、targetが見出し・frontmatter key・**定義項目** のいずれかとして解決すること。
+# pathはrepository root基準を優先しsourceディレクトリ基準も許容する。プレースホルダーを含む参照と、
+# どちらの基準でも実在しないslashなしの総称instance参照（`PROJECT.md#status`等）は対象外とする。
+# 責務移管で見出しが移動したのに参照元が残る断線（#14 #20）を機械検出する。
+reference_md_files="$(git -C "$repo_root" ls-files '*.md' 2>/dev/null || true)"
+if [[ -z "$reference_md_files" ]]; then
+  reference_md_files="$(cd "$repo_root" && find . -name '*.md' -type f \
+    -not -path './.git/*' -not -path './.agent-cache/*' -not -path './.tmp/*' \
+    -not -path './projects/*/.git/*' 2>/dev/null | sed 's|^\./||')"
+fi
+while IFS= read -r reference_md_rel; do
+  [[ -n "$reference_md_rel" ]] || continue
+  reference_md_abs="$repo_root/$reference_md_rel"
+  [[ -f "$reference_md_abs" ]] || continue
+  while IFS= read -r markdown_reference; do
+    [[ -n "$markdown_reference" ]] || continue
+    case "$markdown_reference" in
+      *'<'*) continue ;; # プレースホルダー・記法例
+    esac
+    reference_path="${markdown_reference%%#*}"
+    reference_target="${markdown_reference#*#}"
+    reference_target="${reference_target%%=*}" # eval固有の =<期待値> 表記を許容
+    [[ -n "$reference_target" && -n "$reference_path" ]] || continue
+    reference_file=''
+    if [[ -f "$repo_root/$reference_path" ]]; then
+      reference_file="$repo_root/$reference_path"
+    elif [[ -f "$(dirname "$reference_md_abs")/$reference_path" ]]; then
+      reference_file="$(dirname "$reference_md_abs")/$reference_path"
+    elif [[ "$reference_path" != */* ]]; then
+      continue # 総称instance参照
+    else
+      fail "$reference_md_rel references a missing file: $reference_path"
+      continue
+    fi
+    if ! awk -v target="$reference_target" '
+      /^#+ / { heading = $0; sub(/^#+[[:space:]]*/, "", heading); sub(/[[:space:]]*$/, "", heading)
+        if (heading == target) { found = 1; exit } }
+      { if (index($0, "**" target "**") > 0) { found = 1; exit }
+        if (index($0, target ":") == 1) { found = 1; exit } }
+      END { exit found ? 0 : 1 }
+    ' "$reference_file"; then
+      fail "$reference_md_rel reference does not resolve: $reference_path#$reference_target"
+    fi
+  done < <(grep -o '`[^`]*\.md#[^`]*`' "$reference_md_abs" 2>/dev/null | tr -d '`' | LC_ALL=C sort -u || true)
+done <<<"$reference_md_files"
 grep -Fq 'materialize-project-repositories.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register materialize-project-repositories.sh'
 grep -Fq 'prepare-context.sh' "$repo_root/tools/TOOLS.md" || \
