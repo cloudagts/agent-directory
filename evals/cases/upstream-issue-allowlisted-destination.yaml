@@ -3,7 +3,7 @@ name: upstream-issue-allowlisted-destination
 # 許可リスト内の別上流（共有Skillライブラリ）への報告は--repoで選択して事前承認済みで送信でき、
 # revision自動解決がない宛先では採用revisionを本文の## 対象へ報告者が記すことを検証する。
 request: |
-  agent-sillsから取り込んだSkillのimport toolに、取り込み側の設計に依存しない再現可能な
+  agent-skillsから取り込んだSkillのimport toolに、取り込み側の設計に依存しない再現可能な
   バグを見つけた。再現手順を添えて上流へ報告して。
 
 expect:

@@ -12,7 +12,7 @@ draft_dir="$cache_dir/upstream-reports"
 # --repo selects inside the allowlist; no flag or environment variable may extend it.
 upstream_repo_allowlist=(
   'claudagt/agent-directory'
-  'claudagt/agent-sills'
+  'claudagt/agent-skills'
 )
 upstream_repo='claudagt/agent-directory'
 
