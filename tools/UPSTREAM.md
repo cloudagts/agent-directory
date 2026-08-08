@@ -18,7 +18,7 @@
 | repository | 位置づけ | revision自動解決 |
 |---|---|---|
 | `claudagt/agent-directory`（既定） | 本テンプレートの公開上流 | あり（`#上流revisionの解決`） |
-| `claudagt/agent-sills` | 共有Skillライブラリの配布元（`skills/SKILLS.md#共有Skillライブラリ`） | なし（報告者が本文`## 対象`へ記す） |
+| `claudagt/agent-skills` | 共有Skillライブラリの配布元（`skills/SKILLS.md#共有Skillライブラリ`） | なし（報告者が本文`## 対象`へ記す） |
 
 - 宛先はこの許可リストへ固定する。`--repo`は許可リスト内の選択だけを行い、リスト外は
   `destination-not-allowed`で拒否する。リストを広げる引数・環境変数を持たない。

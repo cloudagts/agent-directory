@@ -6,12 +6,12 @@ Projectは「何を作り残すか」を所有する。再利用可能な研究�
 
 ## 共有Skillライブラリ
 
-Agent間で再利用する汎用Skillは、別リポジトリの [`agent-sills`](https://github.com/claudagt/agent-sills) が配布元です。
+Agent間で再利用する汎用Skillは、別リポジトリの [`agent-skills`](https://github.com/claudagt/agent-skills) が配布元です。
 このWorkspaceへSkillを標準で自動導入・自動同期はしません。必要なタスクで利用者が明示したときだけ、配布元のimport toolで
 `skills/<skill-name>/`をコピーし、取り込んだSkillをこのWorkspaceの正本にします。
 
 ```bash
-bash /path/to/agent-sills/tools/import-skill.sh <skill-name> \
+bash /path/to/agent-skills/tools/import-skill.sh <skill-name> \
   --target /path/to/agent-directory
 ```
 
