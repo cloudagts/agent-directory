@@ -1645,6 +1645,10 @@ while IFS= read -r -d '' case_file; do
   if grep -q '^report_match:' "$case_file"; then
     while IFS= read -r report_match_slug; do
       [[ -n "$report_match_slug" ]] || continue
+      if ! [[ "$report_match_slug" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+        fail "$(relative_path "$case_file") report_match slug must be lowercase kebab-case: $report_match_slug"
+        continue
+      fi
       if ! awk -v slug="$report_match_slug" '
         /^  must_report:/ { in_report = 1; next }
         in_report && !/^    - / { in_report = 0 }
@@ -1657,7 +1661,7 @@ while IFS= read -r -d '' case_file; do
     done <<<"$(awk '
       /^report_match:/ { in_match = 1; next }
       in_match && /^[^ ]/ { in_match = 0 }
-      in_match && /^  [a-z0-9][a-z0-9-]*:[[:space:]]*(#.*)?$/ {
+      in_match && /^  [^ ]/ && /:/ {
         slug = $1; sub(/:.*/, "", slug); print slug }
     ' "$case_file")"
   fi
@@ -1819,7 +1823,9 @@ grep -Fq '運用者応対言語' "$repo_root/AGENTS.md" || \
 # pathが実在し、targetが見出し・frontmatter key・**定義項目** のいずれかとして解決すること。
 # pathはrepository root基準を優先しsourceディレクトリ基準も許容する。プレースホルダーを含む参照と、
 # どちらの基準でも実在しないslashなしの総称instance参照（`PROJECT.md#status`等）は対象外とする。
-# 責務移管で見出しが移動したのに参照元が残る断線（#14 #20）を機械検出する。
+# 責務移管で見出しが移動したのに参照元が残る断線（#14 #20）を機械検出する。断線は正本の編集で
+# しか生まれず、meta正本の変更はfull検証へ進む契約のため、この全件走査は--fullだけが実行する。
+if [[ "$full" == true ]]; then
 reference_md_files="$(git -C "$repo_root" ls-files '*.md' 2>/dev/null || true)"
 if [[ -z "$reference_md_files" ]]; then
   reference_md_files="$(cd "$repo_root" && find . -name '*.md' -type f \
@@ -1851,16 +1857,19 @@ while IFS= read -r reference_md_rel; do
       continue
     fi
     if ! awk -v target="$reference_target" '
+      NR == 1 && /^---$/ { in_frontmatter = 1; next }
+      in_frontmatter && /^---$/ { in_frontmatter = 0; next }
+      in_frontmatter { if (index($0, target ":") == 1) { found = 1; exit }; next }
       /^#+ / { heading = $0; sub(/^#+[[:space:]]*/, "", heading); sub(/[[:space:]]*$/, "", heading)
         if (heading == target) { found = 1; exit } }
-      { if (index($0, "**" target "**") > 0) { found = 1; exit }
-        if (index($0, target ":") == 1) { found = 1; exit } }
+      { if (index($0, "**" target "**") > 0) { found = 1; exit } }
       END { exit found ? 0 : 1 }
     ' "$reference_file"; then
       fail "$reference_md_rel reference does not resolve: $reference_path#$reference_target"
     fi
   done < <(grep -o '`[^`]*\.md#[^`]*`' "$reference_md_abs" 2>/dev/null | tr -d '`' | LC_ALL=C sort -u || true)
 done <<<"$reference_md_files"
+fi
 grep -Fq 'materialize-project-repositories.sh' "$repo_root/tools/TOOLS.md" || \
   fail 'tools/TOOLS.md does not register materialize-project-repositories.sh'
 grep -Fq 'prepare-context.sh' "$repo_root/tools/TOOLS.md" || \

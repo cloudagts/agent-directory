@@ -90,6 +90,8 @@ OK: privateなdownstream Workspaceの通常Project作業中に発生した
    下流が実際に採用した上流revision。`git rev-parse`が受け付ける表記（大文字・short sha）は
    実在commitへ正規化して採用し、実在確認できない宣言値は公開せずDETAILで通知する。
    remoteの現在tipへはfallbackしない（「採用済みrevision」と「remoteの現在」を混同するため）。
+   検証はローカルobject DBを参照するため、上流objectを持たないWorkspaceは読み取り専用の
+   `template` remoteを追加して`git fetch template`すると宣言が検証可能になる（DETAILでも案内する）。
 2. `template` remote（`tools/BACKUP.md`の読み取り用remote）とのmerge-base — clone追従の
    診断値。merge-baseは「分岐した」事実であり、port追従では採用の進行を追わないため、
    検証済み宣言があれば宣言を優先する。

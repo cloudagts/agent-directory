@@ -103,10 +103,14 @@ else
       declared_verified="$(git -C "$repo_root" rev-parse --verify "$declared_revision^{commit}" 2>/dev/null || true)"
     else
       note 'git config agent-directory.upstream-revision does not exist in this clone; not publishing an unverifiable sha'
+      note 'to make the declaration verifiable, add the read-only template remote and run git fetch template (tools/BACKUP.md#remoteの分類)'
     fi
   fi
   if [[ -n "$declared_verified" ]]; then
     upstream_sha="$declared_verified (resolved-from: declared)"
+    if [[ -n "$merge_base" && "$declared_verified" != "$merge_base" ]]; then
+      note 'the declared adoption differs from the merge-base ancestor (expected while porting ahead); if the declaration is stale, update or unset git config agent-directory.upstream-revision'
+    fi
   elif [[ -n "$merge_base" ]]; then
     upstream_sha="$merge_base (resolved-from: merge-base)"
   elif [[ "$has_template_remote" == true && "$template_ref_present" == false ]]; then
@@ -177,7 +181,7 @@ check_pattern() {
 # agent-nameの検査が1件も実行されないまま送信・dry-run成功を成立させない（fail-closed）。
 self_definition_section="$(awk '
   /^#+[[:space:]]*自己定義[[:space:]]*$/ { in_section = 1; match($0, /^#+/); depth = RLENGTH; next }
-  in_section && /^#+[[:space:]]/ { match($0, /^#+/); if (RLENGTH <= depth) exit }
+  in_section && /^#/ { match($0, /^#+/); if (RLENGTH <= depth) exit }
   in_section' "$repo_root/AGENTS.md")"
 if [[ -z "$self_definition_section" ]]; then
   blocked anonymization-source-unparsed \
@@ -197,8 +201,8 @@ while IFS= read -r self_definition_term; do
 done <<<"$self_definition_terms"
 if [[ "$checked_agent_name_terms" -eq 0 ]]; then
   blocked anonymization-source-unparsed \
-    'every backticked token on the identity line is an unreplaced template placeholder; zero agent-name checks ran' \
-    'replace the identity-line placeholders with the real names (README.md 手順2), then retry'
+    'no identity-line backtick token survives the exclusions (template placeholders and generic terms); zero agent-name checks ran' \
+    'declare the real names in backticks on the identity line (README.md 手順2), then retry'
 fi
 check_derived_term workspace-name "${repo_root##*/}"
 check_derived_term os-user-name "${USER:-}"
